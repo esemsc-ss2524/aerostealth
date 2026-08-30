@@ -17,3 +17,7 @@ tesseracts/cfd/case_run/
 
 # env
 .venv/
+
+# tesseract run scratch
+tesseracts/*/_run/
+tesseracts/cfd/case_template/constant/polyMesh/

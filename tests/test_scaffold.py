@@ -30,10 +30,11 @@ def test_geom_apply(geom_out):
     assert np.asarray(geom_out["g_geom"]).shape == (4,)
 
 
-def test_cfd_apply(geom_out):
-    out = local_tesseract("cfd").apply({"x_surf": np.asarray(geom_out["x_surf"])})
-    assert {"Cd", "Cl", "Cm", "alpha_deg"} <= set(out)
-    assert np.isfinite(float(out["Cd"]))
+def test_cfd_loads():
+    # apply shells out to OpenFOAM (see tests/test_cfd_primal.py); here just
+    # check the Tesseract loads and exposes the expected interface.
+    cfd = local_tesseract("cfd")
+    assert "apply" in cfd.available_endpoints
 
 
 def test_em_apply(geom_out):
