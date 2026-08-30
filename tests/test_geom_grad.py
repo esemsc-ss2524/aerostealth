@@ -1,28 +1,44 @@
 # SPDX-License-Identifier: Apache-2.0
-"""geom jacobian endpoint agrees with central finite differences on x_surf w.r.t. theta."""
+"""geom jacobian endpoint agrees with central finite differences for every output."""
 
 import numpy as np
+import pytest
 
 from driver.tesseracts import local_tesseract
 
-
-def _x_surf(geom, theta):
-    return np.asarray(geom.apply({"theta": theta})["x_surf"])
+OVERRIDES = {"n_surface": 60, "raster_nx": 48, "raster_ny": 48}
 
 
-def test_geom_jacobian_vs_fd():
-    geom = local_tesseract("geom")
-    rng = np.random.default_rng(0)
-    theta = 0.05 * rng.standard_normal(8)
+@pytest.fixture(scope="module")
+def geom():
+    return local_tesseract("geom")
 
-    jac = geom.jacobian({"theta": theta}, ["theta"], ["x_surf"])
-    jac_analytic = np.asarray(jac["x_surf"]["theta"])
 
-    h = 1e-6
-    jac_fd = np.empty_like(jac_analytic)
+@pytest.fixture(scope="module")
+def theta():
+    rng = np.random.default_rng(1)
+    return np.concatenate(
+        [0.18 + 0.03 * rng.standard_normal(4), -0.15 + 0.03 * rng.standard_normal(4)]
+    )
+
+
+def _fd_jacobian(geom, theta, output, h=1e-6):
+    cols = []
     for k in range(theta.size):
-        step = np.zeros_like(theta)
-        step[k] = h
-        jac_fd[..., k] = (_x_surf(geom, theta + step) - _x_surf(geom, theta - step)) / (2 * h)
+        plus, minus = theta.copy(), theta.copy()
+        plus[k] += h
+        minus[k] -= h
+        op = np.asarray(geom.apply({**OVERRIDES, "theta": plus})[output])
+        om = np.asarray(geom.apply({**OVERRIDES, "theta": minus})[output])
+        cols.append((op - om) / (2 * h))
+    return np.stack(cols, axis=-1)
 
-    assert np.allclose(jac_analytic, jac_fd, rtol=1e-5, atol=1e-7)
+
+@pytest.mark.parametrize("output", ["x_surf", "g_geom", "level_set"])
+def test_jacobian_vs_fd(geom, theta, output):
+    analytic = np.asarray(
+        geom.jacobian({**OVERRIDES, "theta": theta}, ["theta"], [output])[output]["theta"]
+    )
+    numeric = _fd_jacobian(geom, theta, output)
+    scale = np.abs(numeric).max() + 1e-12
+    assert np.max(np.abs(analytic - numeric)) / scale < 1e-6
