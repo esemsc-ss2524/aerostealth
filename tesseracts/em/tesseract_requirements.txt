@@ -1,0 +1,2 @@
+numpy
+# meep (pymeep) is provided by the host conda environment, not pip

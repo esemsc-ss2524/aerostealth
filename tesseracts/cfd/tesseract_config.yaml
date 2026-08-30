@@ -1,0 +1,6 @@
+name: "aerostealth-cfd"
+version: "0.1.0"
+description: "OpenFOAM adjointOptimisationFoam: mesh morph, primal RANS, AoA trim, drag adjoint sensitivity."
+
+build_config:
+  target_platform: "native"

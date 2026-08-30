@@ -1,0 +1,19 @@
+plan/
+.vscode/
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# tesseract / run artifacts
+outputs/
+runs/
+*.foam
+tesseracts/cfd/case_run/
+
+# env
+.venv/

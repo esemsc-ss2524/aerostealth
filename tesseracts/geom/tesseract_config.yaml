@@ -1,0 +1,6 @@
+name: "aerostealth-geom"
+version: "0.1.0"
+description: "CST airfoil parameterization, boundary curve, differentiable rasterization, geometric constraints."
+
+build_config:
+  target_platform: "native"

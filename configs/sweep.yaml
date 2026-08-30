@@ -1,0 +1,23 @@
+method: epsilon_constraint
+objective: Cd
+constraint: sigma_agg
+
+epsilon:
+  points: 12
+  include_anchors: true
+  schedule: linear
+
+warm_start: previous
+
+optimizer:
+  name: SLSQP
+  max_iter: 60
+  ftol: 1.0e-6
+  step_bound: 0.1
+
+ks_continuation:
+  rho_start: 10.0
+  rho_end: 60.0
+
+reanchor:
+  shape_drift_tol: 0.15

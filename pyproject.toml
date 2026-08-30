@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aerostealth"
+version = "0.1.0"
+description = "Gradient-based RCS vs drag co-design by composing heterogeneous differentiable solvers behind Tesseract."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+dependencies = [
+    "jax",
+    "equinox",
+    "numpy",
+    "scipy",
+    "pyyaml",
+    "nlopt",
+    "tesseract-core",
+    "tesseract-jax",
+]
+
+[project.optional-dependencies]
+analysis = ["matplotlib"]
+dev = ["pytest", "pytest-xdist", "ruff"]
+
+[tool.setuptools]
+packages = ["driver", "analysis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
