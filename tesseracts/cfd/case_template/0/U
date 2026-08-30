@@ -1,11 +1,11 @@
 FoamFile { version 2.0; format ascii; class volVectorField; object U; }
 
 dimensions      [0 1 -1 0 0 0 0];
-internalField   uniform (1 0 0);
+internalField   uniform (60 0 0);
 
 boundaryField
 {
-    airfoil   { type noSlip; }
-    farfield  { type freestreamVelocity; freestreamValue uniform (1 0 0); }
-    "(front|back)" { type empty; }
+    airfoil   { type fixedValue; value uniform (0 0 0); }
+    farfield  { type freestream; freestreamValue uniform (60 0 0); }
+    frontBack { type empty; }
 }

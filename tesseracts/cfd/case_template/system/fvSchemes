@@ -1,22 +1,43 @@
 FoamFile { version 2.0; format ascii; class dictionary; object fvSchemes; }
 
-ddtSchemes      { default steadyState; }
+ddtSchemes { default steadyState; }
 
 gradSchemes
 {
-    default         Gauss linear;
-    grad(U)         cellLimited Gauss linear 1;
+    default          Gauss linear;
+    gradUConv        cellLimited Gauss linear 1;
+    gradNuTildaConv  cellLimited Gauss linear 1;
+    gradDConv        cellLimited Gauss linear 1;
+
+    gradUaConv       cellLimited Gauss linear 1;
+    gradNuaTildaConv cellLimited Gauss linear 1;
+    gradDaConv       cellLimited Gauss linear 1;
 }
 
 divSchemes
 {
-    default         none;
-    div(phi,U)          bounded Gauss linearUpwind grad(U);
-    div(phi,nuTilda)    bounded Gauss linearUpwind grad(nuTilda);
-    div((nuEff*dev2(T(grad(U))))) Gauss linear;
+    default            Gauss linear;
+    div(phi,U)         bounded Gauss linearUpwind gradUConv;
+    div(-phi,Ua)       bounded Gauss linearUpwind gradUaConv;
+    div(yPhi,yWall)            Gauss linearUpwind gradDConv;
+
+    div(phi,nuTilda)   bounded Gauss linearUpwind gradNuTildaConv;
+    div(-phi,nuaTilda) bounded Gauss linearUpwind gradNuaTildaConv;
+    div(-yPhi,da)              Gauss linearUpwind gradDaConv;
 }
 
 laplacianSchemes { default Gauss linear corrected; }
 interpolationSchemes { default linear; }
-snGradSchemes   { default corrected; }
-wallDist        { method meshWave; }
+snGradSchemes { default corrected; }
+
+wallDist
+{
+    method advectionDiffusion;
+    advectionDiffusionCoeffs
+    {
+        method    meshWave;
+        tolerance 5e-6;
+        maxIter   1000;
+        epsilon   0.1;
+    }
+}

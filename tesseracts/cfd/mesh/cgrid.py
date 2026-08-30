@@ -3,8 +3,10 @@
 
 Four blocks wrap the section from its surface to a semicircular far field; two
 wake blocks carry the grid downstream to the outlet with the wake cut kept
-internal. Radial grading packs the first cell to a target wall spacing for
-wall-resolved RANS.
+internal. Radial grading packs the first cell to a target wall spacing.
+
+The CFD path runs on the vendored tutorial mesh (see `vendor.py`); this is the
+own-grid alternative and the source of the reference `naca0012()` loop.
 """
 
 import argparse
@@ -50,11 +52,11 @@ def build_dict(
     n_per_side=161,
     n_wrap=48,
     n_wake=64,
-    n_radial=128,
-    farfield_radius=20.0,
+    n_radial=90,
+    farfield_radius=25.0,
     wake_length=25.0,
-    first_cell=8.0e-6,
-    wake_ratio=300.0,
+    first_cell=5.0e-4,
+    wake_ratio=200.0,
     span=0.05,
 ):
     loop = naca0012(n_per_side)
@@ -222,10 +224,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--n-per-side", type=int, default=161)
-    parser.add_argument("--n-radial", type=int, default=128)
-    parser.add_argument("--farfield-radius", type=float, default=20.0)
+    parser.add_argument("--n-radial", type=int, default=90)
+    parser.add_argument("--farfield-radius", type=float, default=25.0)
     parser.add_argument("--wake-length", type=float, default=25.0)
-    parser.add_argument("--first-cell", type=float, default=8.0e-6)
+    parser.add_argument("--first-cell", type=float, default=5.0e-4)
     args = parser.parse_args()
     text = build_dict(
         n_per_side=args.n_per_side,

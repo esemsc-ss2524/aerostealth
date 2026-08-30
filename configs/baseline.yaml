@@ -9,8 +9,8 @@ geometry:
     enclosed_area_min: 0.075
 
 aero:
-  reynolds: 1.0e6
-  mach: 0.15
+  reynolds: 6.0e6
+  mach: 0.18
   cl_target: 0.4
   trim: newton_aoa
   solver: openfoam

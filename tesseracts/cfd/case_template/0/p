@@ -6,6 +6,6 @@ internalField   uniform 0;
 boundaryField
 {
     airfoil   { type zeroGradient; }
-    farfield  { type freestreamPressure; freestreamValue uniform 0; }
-    "(front|back)" { type empty; }
+    farfield  { type outletInlet; outletValue uniform 0; value uniform 0; }
+    frontBack { type empty; }
 }

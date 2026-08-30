@@ -34,11 +34,8 @@ def trimmed_sensitivity(x_surf, cl_target, reynolds, workdir, alpha0=3.0):
     sens = runner.run_adjoint(primal_case, alpha, reynolds, workdir / "adj")
     dcda = runner.alpha_derivatives(primal_case, alpha, reynolds, workdir / "da")
 
-    normals = morph.patch_point_normals(primal_case)
-
-    def project(point_scalar):
-        return morph.morph_vjp(primal_case, x_surf, point_scalar[:, None] * normals,
-                               radius=MORPH_RADIUS)
+    def project(point_vector):
+        return morph.morph_vjp(primal_case, x_surf, point_vector, radius=MORPH_RADIUS)
 
     dCd_dx = project(sens["drag"])
     dCl_dx = project(sens["lift"])

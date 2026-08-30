@@ -18,7 +18,7 @@ class InputSchema(BaseModel):
     x_surf: Differentiable[Array[(None, 2), Float64]]
     cl_target: float = 0.4
     alpha_deg: float = 3.0
-    reynolds: float = 1.0e6
+    reynolds: float = 6.0e6
 
 
 class OutputSchema(BaseModel):

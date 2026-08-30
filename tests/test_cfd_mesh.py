@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The C-grid generator produces a blockMeshDict that blockMesh builds cleanly."""
+"""The C-grid generator produces a blockMeshDict that blockMesh builds cleanly.
+
+The CFD reference grid is the vendored tutorial mesh; this generator stays as the
+own-grid path and is exercised on a throwaway case."""
 
 import shutil
 import subprocess
@@ -26,7 +29,7 @@ def test_blockmeshdict_structure():
 def test_blockmesh_builds(tmp_path):
     template = ROOT / "tesseracts/cfd/case_template"
     case = tmp_path / "case"
-    shutil.copytree(template, case)
+    shutil.copytree(template, case, ignore=shutil.ignore_patterns("polyMesh"))
     (case / "system/blockMeshDict").write_text(
         cgrid.build_dict(n_per_side=81, n_wrap=24, n_wake=32, n_radial=48)
     )

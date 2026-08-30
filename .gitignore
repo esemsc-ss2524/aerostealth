@@ -20,4 +20,3 @@ tesseracts/cfd/case_run/
 
 # tesseract run scratch
 tesseracts/*/_run/
-tesseracts/cfd/case_template/constant/polyMesh/

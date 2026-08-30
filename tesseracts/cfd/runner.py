@@ -2,6 +2,7 @@
 """Drive an OpenFOAM incompressible RANS primal on the morphed reference mesh,
 with an inner angle-of-attack Newton solve to trim to a target lift."""
 
+import gzip
 import math
 import os
 import re
@@ -15,8 +16,9 @@ import numpy as np
 CFD_DIR = Path(__file__).resolve().parent
 TEMPLATE = CFD_DIR / "case_template"
 DEFAULT_BASHRC = Path.home() / "side-projects/openfoam/etc/bashrc"
-UINF = 1.0
+UINF = 60.0
 CHORD = 1.0
+TURB_INIT = 25.0
 FIELDS = ("U", "p", "nut", "nuTilda")
 
 sys.path.insert(0, str(CFD_DIR / "mesh"))
@@ -38,11 +40,14 @@ def _foam(args, case, log):
 
 
 def _reference_mesh(cache_root):
+    """Uncompress the vendored reference polyMesh once per cache root."""
     ref = Path(cache_root) / "reference"
     if not (ref / "constant/polyMesh/points").exists():
         shutil.rmtree(ref, ignore_errors=True)
-        shutil.copytree(TEMPLATE, ref, ignore=shutil.ignore_patterns("adjoint"))
-        _foam("blockMesh", ref, ref / "log.blockMesh")
+        shutil.copytree(TEMPLATE / "constant/polyMesh", ref / "constant/polyMesh")
+        for gz in (ref / "constant/polyMesh").glob("*.gz"):
+            gz.with_suffix("").write_bytes(gzip.decompress(gz.read_bytes()))
+            gz.unlink()
     return ref
 
 
@@ -54,8 +59,8 @@ def prepare_mesh(x_surf, workdir, morph_radius=0.6):
         return mesh
     workdir.mkdir(parents=True, exist_ok=True)
     ref = _reference_mesh(workdir.parent)
-    shutil.copytree(TEMPLATE, mesh, ignore=shutil.ignore_patterns("adjoint"))
-    shutil.rmtree(mesh / "constant/polyMesh", ignore_errors=True)
+    shutil.copytree(TEMPLATE, mesh,
+                    ignore=shutil.ignore_patterns("adjoint", "polyMesh"))
     shutil.copytree(ref / "constant/polyMesh", mesh / "constant/polyMesh")
     morph.morph_case(mesh, np.asarray(x_surf), radius=morph_radius)
     _foam("checkMesh -constant", mesh, mesh / "log.checkMesh")
@@ -65,13 +70,19 @@ def prepare_mesh(x_surf, workdir, morph_radius=0.6):
 
 def _set_flow_conditions(case, alpha_deg, reynolds):
     a = math.radians(alpha_deg)
-    ux, uy = UINF * math.cos(a), UINF * math.sin(a)
+    dx, dy = math.cos(a), math.sin(a)
     lx, ly = -math.sin(a), math.cos(a)
     nu = UINF * CHORD / reynolds
 
     u = (case / "0/U").read_text()
-    u = re.sub(r"uniform \([^)]*\)", f"uniform ({ux:.10g} {uy:.10g} 0)", u)
+    u = re.sub(r"(internalField|freestreamValue)(\s+)uniform \([^)]*\)",
+               rf"\1\2uniform ({UINF * dx:.10g} {UINF * dy:.10g} 0)", u)
     (case / "0/U").write_text(u)
+
+    for field in ("nuTilda", "nut"):
+        f = case / "0" / field
+        f.write_text(re.sub(r"uniform 2\.5e-0?4", f"uniform {TURB_INIT * nu:.10g}",
+                            f.read_text()))
 
     tp = (case / "constant/transportProperties").read_text()
     (case / "constant/transportProperties").write_text(
@@ -80,7 +91,7 @@ def _set_flow_conditions(case, alpha_deg, reynolds):
 
     cd = (case / "system/controlDict").read_text()
     cd = cd.replace("liftDir         (0 1 0)", f"liftDir         ({lx:.10g} {ly:.10g} 0)")
-    cd = cd.replace("dragDir         (1 0 0)", f"dragDir         ({ux:.10g} {uy:.10g} 0)")
+    cd = cd.replace("dragDir         (1 0 0)", f"dragDir         ({dx:.10g} {dy:.10g} 0)")
     (case / "system/controlDict").write_text(cd)
 
 
@@ -161,9 +172,11 @@ def _dir_tuple(vec):
     return f"({vec[0]:.12g} {vec[1]:.12g} 0)"
 
 
-def _read_point_scalar(path):
-    body = morph._foam_list(Path(path).read_text())
-    return np.array([float(x) for x in body.split()])
+def _read_point_vector(path):
+    """Parse a pointVectorField into (nPoints, 2), dropping the empty direction."""
+    body = morph._foam_list(Path(path).read_text().split("internalField", 1)[1])
+    rows = [ln.strip()[1:-1].split() for ln in body.splitlines() if ln.strip().startswith("(")]
+    return np.array([[float(r[0]), float(r[1])] for r in rows])
 
 
 def _adjoint_one(primal_case, obj_name, obj_dir, reynolds, case,
@@ -178,7 +191,6 @@ def _adjoint_one(primal_case, obj_name, obj_dir, reynolds, case,
     if latest.name != "0":
         shutil.rmtree(latest)
 
-    (case / "system/fvSchemes").rename(case / "system/fvSchemes.primal")
     for sub in ("0", "constant", "system"):
         for f in (ADJOINT_OVERLAY / sub).iterdir():
             shutil.copy(f, case / sub / f.name)
@@ -195,14 +207,14 @@ def _adjoint_one(primal_case, obj_name, obj_dir, reynolds, case,
     )
     _foam("adjointOptimisationFoam", case, case / "log.adjoint")
 
-    sens = sorted(case.glob("[0-9]*/pointSensNormaladj*"))
+    sens = sorted(case.glob("[0-9]*/pointSensVecadj*"))
     if not sens:
         raise RuntimeError(f"no point sensitivity written (see {case / 'log.adjoint'})")
-    return _read_point_scalar(sens[-1])
+    return _read_point_vector(sens[-1])
 
 
-def run_adjoint(primal_case, alpha_deg, reynolds, workdir, adj_iters=2000, primal_iters=200):
-    """Drag and lift shape sensitivities dJ/dn per mesh point, from two
+def run_adjoint(primal_case, alpha_deg, reynolds, workdir, adj_iters=3000, primal_iters=200):
+    """Drag and lift shape sensitivities dJ/dx per mesh point, from two
     single-objective adjointOptimisationFoam runs restarted off primal_case."""
     a = math.radians(alpha_deg)
     workdir = Path(workdir)

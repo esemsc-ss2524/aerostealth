@@ -11,6 +11,7 @@ primalSolvers
         solver           simple;
         solutionControls
         {
+            nNonOrthogonalCorrectors 2;
             nIters __PRIMAL_ITERS__;
             residualControl { "p.*" 1e-6; "U.*" 1e-6; "nuTilda.*" 1e-6; }
         }
@@ -21,14 +22,17 @@ adjointManagers
 {
     am1
     {
-        primalSolver     op1;
+        primalSolver          op1;
+        operatingPointWeight  1;
         adjointSolvers
         {
             adj
             {
-                active       true;
-                type         incompressible;
-                solver       adjointSimple;
+                active                true;
+                type                  incompressible;
+                solver                adjointSimple;
+                computeSensitivities  true;
+
                 objectives
                 {
                     type         incompressible;
@@ -40,15 +44,25 @@ adjointManagers
                             type       force;
                             patches    (airfoil);
                             direction  __OBJ_DIR__;
-                            Aref       0.05;
+                            Aref       1.0;
                             rhoInf     1.0;
-                            UInf       1.0;
+                            UInf       60.0;
                         }
                     }
                 }
-                ATCModel { ATCModel standard; }
+
+                ATCModel
+                {
+                    ATCModel          standard;
+                    extraConvection   0;
+                    nSmooth           0;
+                    zeroATCPatchTypes ();
+                    maskType          faceCells;
+                }
+
                 solutionControls
                 {
+                    nNonOrthogonalCorrectors 2;
                     nIters __ADJ_ITERS__;
                     residualControl { "pa.*" 1e-6; "Ua.*" 1e-6; "nuaTilda.*" 1e-6; }
                 }
@@ -61,7 +75,13 @@ optimisation
 {
     designVariables
     {
-        sensitivityType surfacePoints;
-        patches         (airfoil);
+        sensitivityType      surfacePoints;
+        patches              (airfoil);
+        includeSurfaceArea   true;
+        includeDistance      true;
+        includeMeshMovement  true;
+        writeAllSurfaceFiles true;
+        adjointMeshMovementSolver { iters 1000; tolerance 1e-6; }
+        adjointEikonalSolver      { iters 1000; tolerance 1e-6; epsilon 0.1; }
     }
 }

@@ -7,5 +7,5 @@ boundaryField
 {
     airfoil   { type zeroGradient; }
     farfield  { type adjointFarFieldPressure; value uniform 0; }
-    "(front|back)" { type empty; }
+    frontBack { type empty; }
 }

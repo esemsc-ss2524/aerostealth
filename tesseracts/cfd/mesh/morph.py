@@ -97,6 +97,17 @@ def surface_displacement(ref_xy, target_curve):
     return projection_weights(ref_xy, target_curve) @ np.asarray(target_curve)[:, :2] - ref_xy
 
 
+def support_mask(mesh_xy, centers_xy, radius, chunk=4096):
+    """Mesh nodes inside the compact support of at least one center. The rest
+    have an identically zero operator row, so they never move."""
+    keep = np.zeros(len(mesh_xy), dtype=bool)
+    for i in range(0, len(mesh_xy), chunk):
+        block = mesh_xy[i : i + chunk]
+        d = np.linalg.norm(block[:, None, :] - centers_xy[None, :, :], axis=-1)
+        keep[i : i + chunk] = d.min(axis=1) < radius
+    return keep
+
+
 def build_operator(mesh_xy, centers_xy, radius):
     """Rows of the linear map from surface-node displacement to mesh-node
     displacement: mesh_disp = (evaluate @ solve) @ surface_disp."""
@@ -119,35 +130,10 @@ def morph_case(case, target_curve, radius=0.6, patch="airfoil"):
     centers_xy = points[centers_ids, :2]
 
     disp = surface_displacement(centers_xy, np.asarray(target_curve)[:, :2])
-    operator = build_operator(points[:, :2], centers_xy, radius)
-    points[:, :2] += operator @ disp
+    near = support_mask(points[:, :2], centers_xy, radius)
+    points[near, :2] += build_operator(points[near, :2], centers_xy, radius) @ disp
     write_points(pm / "points", points)
     return points
-
-
-def patch_point_normals(case, patch="airfoil"):
-    """Unit outward xy normal at each patch point, indexed by mesh point id
-    (nPoints, 2), zero away from the patch. Outward means out of the fluid."""
-    pm = Path(case) / "constant/polyMesh"
-    points = read_points(pm / "points")
-    start, n = _boundary(pm / "boundary")[patch]
-    faces = _faces(pm / "faces")
-
-    normals = np.zeros((len(points), 2))
-    centroid = points[_centers(case, points, patch), :2].mean(axis=0)
-    for f in faces[start : start + n]:
-        p = points[f]
-        fn = np.cross(p[1] - p[0], p[2] - p[0])
-        nrm = np.array([fn[0], fn[1]])
-        mid = p[:, :2].mean(axis=0)
-        if np.dot(nrm, mid - centroid) < 0:
-            nrm = -nrm
-        for vid in f:
-            normals[vid] += nrm
-    mag = np.linalg.norm(normals, axis=1)
-    nz = mag > 1e-14
-    normals[nz] /= mag[nz, None]
-    return normals
 
 
 def morph_vjp(case, target_curve, cotangent_xy, radius=0.6, patch="airfoil"):
@@ -157,6 +143,7 @@ def morph_vjp(case, target_curve, cotangent_xy, radius=0.6, patch="airfoil"):
     points = read_points(pm / "points")
     centers_xy = points[_centers(case, points, patch), :2]
 
-    operator = build_operator(points[:, :2], centers_xy, radius)
+    near = support_mask(points[:, :2], centers_xy, radius)
+    operator = build_operator(points[near, :2], centers_xy, radius)
     w = projection_weights(centers_xy, np.asarray(target_curve)[:, :2])
-    return w.T @ (operator.T @ np.asarray(cotangent_xy))
+    return w.T @ (operator.T @ np.asarray(cotangent_xy)[near])

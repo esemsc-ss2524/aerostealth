@@ -7,5 +7,5 @@ boundaryField
 {
     airfoil   { type adjointWallVelocity; value uniform (0 0 0); }
     farfield  { type adjointFarFieldVelocity; value uniform (0 0 0); }
-    "(front|back)" { type empty; }
+    frontBack { type empty; }
 }

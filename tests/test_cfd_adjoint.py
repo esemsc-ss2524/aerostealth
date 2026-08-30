@@ -64,7 +64,7 @@ def test_drag_adjoint_vs_fd():
         return np.asarray(geom.apply({"theta": th, "n_surface": 161})["x_surf"])
 
     tmp = Path(os.environ.get("PYTEST_TMPDIR", "/tmp")) / "cfd_adjoint_fd"
-    sens = sensitivity.trimmed_sensitivity(xsurf(theta), 0.4, 1.0e6, tmp / "adj", alpha0=3.7)
+    sens = sensitivity.trimmed_sensitivity(xsurf(theta), 0.4, 6.0e6, tmp / "adj", alpha0=3.7)
     dtheta = np.asarray(
         geom.vector_jacobian_product(
             {"theta": theta, "n_surface": 161}, ["theta"], ["x_surf"],
@@ -77,7 +77,7 @@ def test_drag_adjoint_vs_fd():
     tp[k] += h
     tm[k] -= h
     a0 = sens["alpha_deg"]
-    cd_p = sensitivity.runner.run_trim(xsurf(tp), 0.4, 1.0e6, tmp / "p", alpha0=a0)["Cd"]
-    cd_m = sensitivity.runner.run_trim(xsurf(tm), 0.4, 1.0e6, tmp / "m", alpha0=a0)["Cd"]
+    cd_p = sensitivity.runner.run_trim(xsurf(tp), 0.4, 6.0e6, tmp / "p", alpha0=a0)["Cd"]
+    cd_m = sensitivity.runner.run_trim(xsurf(tm), 0.4, 6.0e6, tmp / "m", alpha0=a0)["Cd"]
     fd = (cd_p - cd_m) / (2 * h)
     assert abs(dtheta[k] - fd) / (abs(fd) + 1e-9) < 0.2

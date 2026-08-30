@@ -9,8 +9,8 @@ traced across a stealth-vs-aero Pareto front by an epsilon-constraint sweep.
   rasterization, geometric constraints.
 - `cfd` (OpenFOAM `adjointOptimisationFoam`): mesh morph, primal RANS, AoA trim,
   drag adjoint sensitivity.
-- `em` (Meep 2D FDTD): TF/SF scattering, near-to-far RCS, KS-aggregated echo width
-  and its shape adjoint.
+- `em` (JAX method of moments): 2D EFIE on the PEC contour, monostatic echo width,
+  KS-aggregated and differentiated by autodiff.
 - `driver`: composes `geom -> {cfd, em}` with `tesseract-jax` and runs the sweep.
 
 License: Apache-2.0.
@@ -26,7 +26,8 @@ pip install tesseract-core tesseract-jax nlopt lz4
 External solvers, sourced from the host:
 
 - OpenFOAM ESI v2606 at `~/side-projects/openfoam` (`source ~/side-projects/openfoam/etc/bashrc`).
-- Meep via `conda install -c conda-forge pymeep` (added when `em` moves off the stub).
+  Its adjoint-tutorial NACA 0012 mesh is the CFD reference grid, vendored by
+  `tesseracts/cfd/mesh/vendor.py`.
 
 ## Layout
 
