@@ -38,7 +38,7 @@ def test_cfd_loads():
 
 
 def test_em_apply(geom_out):
-    out = local_tesseract("em").apply({"level_set": np.asarray(geom_out["level_set"])})
+    out = local_tesseract("em").apply({"x_surf": np.asarray(geom_out["x_surf"])})
     assert np.isfinite(float(out["sigma_agg"]))
     assert np.asarray(out["sigma_by_angle"]).ndim == 1
 

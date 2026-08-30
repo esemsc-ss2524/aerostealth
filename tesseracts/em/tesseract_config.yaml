@@ -1,6 +1,6 @@
 name: "aerostealth-em"
 version: "0.1.0"
-description: "Meep 2D FDTD: TF/SF plane-wave scattering, near-to-far RCS, KS-aggregated echo width and shape adjoint."
+description: "2D MoM EFIE (TM-z, PEC): monostatic echo width over a frontal incidence sector, KS-aggregated."
 
 build_config:
   target_platform: "native"

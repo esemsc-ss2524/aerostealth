@@ -17,12 +17,13 @@ aero:
 
 em:
   frequency_hz: 10.0e9
-  polarization: PEC
+  chord_m: 0.05
+  polarization: TM
   measurement: monostatic
   incidence_deg: [-30.0, 30.0]
   incidence_count: 13
-  ks_rho: 20.0
+  ks_rho: 50.0
 
 normalization:
-  cd_ref: 8.0e-3
+  cd_ref: 1.3e-2
   sigma_ref: 1.0e-2
