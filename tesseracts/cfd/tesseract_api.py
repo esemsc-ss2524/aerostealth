@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Incompressible RANS drag/lift on a morphed reference C-mesh, trimmed to a target
-lift by an inner angle-of-attack Newton solve. Drag adjoint VJP to follow."""
+lift by an inner angle-of-attack Newton solve, with a drag/lift adjoint VJP."""
 
 import hashlib
+from typing import Any
 
 import numpy as np
 import runner
+import sensitivity
 from pydantic import BaseModel
 from tesseract_core.runtime import Array, Differentiable, Float64
 
@@ -51,3 +53,22 @@ def apply(inputs: InputSchema) -> OutputSchema:
         alpha_deg=result["alpha_deg"],
         trim_iterations=result["trim_iterations"],
     )
+
+
+def vector_jacobian_product(
+    inputs: InputSchema,
+    vjp_inputs: set[str],
+    vjp_outputs: set[str],
+    cotangent_vector: dict[str, Any],
+):
+    x_surf = np.asarray(inputs.x_surf, dtype=np.float64)
+    sens = sensitivity.trimmed_sensitivity(
+        x_surf, inputs.cl_target, inputs.reynolds,
+        _workdir(x_surf, inputs.reynolds), alpha0=inputs.alpha_deg,
+    )
+    grad = np.zeros_like(x_surf)
+    if "Cd" in cotangent_vector:
+        grad += float(cotangent_vector["Cd"]) * sens["dCd_trim_dx_surf"]
+    if "Cl" in cotangent_vector:
+        grad += float(cotangent_vector["Cl"]) * sens["dCl_dx_surf"]
+    return {"x_surf": grad}

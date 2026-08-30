@@ -71,10 +71,9 @@ def _wendland(r):
     return (1.0 - r) ** 4 * (4.0 * r + 1.0)
 
 
-def surface_displacement(ref_xy, target_curve):
-    """Displacement of each reference surface node to its closest point on the
-    target boundary polyline. No ordering assumption; linear in target_curve for
-    a fixed nearest-segment assignment."""
+def projection_weights(ref_xy, target_curve):
+    """Sparse weights W (n_ref, n_target) for the nearest-point-on-polyline map:
+    proj_i = W[i] @ target_curve, linearized at the current nearest segment."""
     a = np.asarray(target_curve)[:, :2]
     b = np.roll(a, -1, axis=0)
     ab = b - a
@@ -84,7 +83,18 @@ def surface_displacement(ref_xy, target_curve):
     proj = a[None, :, :] + t[:, :, None] * ab[None, :, :]
     d2 = np.einsum("nsd,nsd->ns", ref_xy[:, None, :] - proj, ref_xy[:, None, :] - proj)
     nearest = np.argmin(d2, axis=1)
-    return proj[np.arange(len(ref_xy)), nearest] - ref_xy
+    rows = np.arange(len(ref_xy))
+    tn = t[rows, nearest]
+    w = np.zeros((len(ref_xy), len(a)))
+    w[rows, nearest] = 1.0 - tn
+    w[rows, (nearest + 1) % len(a)] += tn
+    return w
+
+
+def surface_displacement(ref_xy, target_curve):
+    """Displacement of each reference surface node to its closest point on the
+    target boundary polyline. Linear in target_curve for a fixed assignment."""
+    return projection_weights(ref_xy, target_curve) @ np.asarray(target_curve)[:, :2] - ref_xy
 
 
 def build_operator(mesh_xy, centers_xy, radius):
@@ -97,11 +107,15 @@ def build_operator(mesh_xy, centers_xy, radius):
     return evaluate @ np.linalg.inv(a)
 
 
+def _centers(case, points, patch):
+    ids = patch_point_ids(case, patch)
+    return ids[points[ids, 2] < points[ids, 2].mean()]
+
+
 def morph_case(case, target_curve, radius=0.6, patch="airfoil"):
     pm = Path(case) / "constant/polyMesh"
     points = read_points(pm / "points")
-    ids = patch_point_ids(case, patch)
-    centers_ids = ids[points[ids, 2] < points[ids, 2].mean()]
+    centers_ids = _centers(case, points, patch)
     centers_xy = points[centers_ids, :2]
 
     disp = surface_displacement(centers_xy, np.asarray(target_curve)[:, :2])
@@ -109,3 +123,40 @@ def morph_case(case, target_curve, radius=0.6, patch="airfoil"):
     points[:, :2] += operator @ disp
     write_points(pm / "points", points)
     return points
+
+
+def patch_point_normals(case, patch="airfoil"):
+    """Unit outward xy normal at each patch point, indexed by mesh point id
+    (nPoints, 2), zero away from the patch. Outward means out of the fluid."""
+    pm = Path(case) / "constant/polyMesh"
+    points = read_points(pm / "points")
+    start, n = _boundary(pm / "boundary")[patch]
+    faces = _faces(pm / "faces")
+
+    normals = np.zeros((len(points), 2))
+    centroid = points[_centers(case, points, patch), :2].mean(axis=0)
+    for f in faces[start : start + n]:
+        p = points[f]
+        fn = np.cross(p[1] - p[0], p[2] - p[0])
+        nrm = np.array([fn[0], fn[1]])
+        mid = p[:, :2].mean(axis=0)
+        if np.dot(nrm, mid - centroid) < 0:
+            nrm = -nrm
+        for vid in f:
+            normals[vid] += nrm
+    mag = np.linalg.norm(normals, axis=1)
+    nz = mag > 1e-14
+    normals[nz] /= mag[nz, None]
+    return normals
+
+
+def morph_vjp(case, target_curve, cotangent_xy, radius=0.6, patch="airfoil"):
+    """Pull dJ/d(mesh point xy) back to dJ/d(target_curve) through the morph.
+    cotangent_xy: (nPoints, 2). Returns (n_target, 2)."""
+    pm = Path(case) / "constant/polyMesh"
+    points = read_points(pm / "points")
+    centers_xy = points[_centers(case, points, patch), :2]
+
+    operator = build_operator(points[:, :2], centers_xy, radius)
+    w = projection_weights(centers_xy, np.asarray(target_curve)[:, :2])
+    return w.T @ (operator.T @ np.asarray(cotangent_xy))

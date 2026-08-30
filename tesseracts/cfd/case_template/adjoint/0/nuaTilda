@@ -1,0 +1,11 @@
+FoamFile { version 2.0; format ascii; class volScalarField; object nuaTilda; }
+
+dimensions      [0 0 -1 0 0 0 0];
+internalField   uniform 0;
+
+boundaryField
+{
+    airfoil   { type fixedValue; value uniform 0; }
+    farfield  { type adjointFarFieldNuaTilda; value uniform 0; }
+    "(front|back)" { type empty; }
+}

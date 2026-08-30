@@ -1,0 +1,67 @@
+FoamFile { version 2.0; format ascii; class dictionary; object optimisationDict; }
+
+optimisationManager  singleRun;
+
+primalSolvers
+{
+    op1
+    {
+        active           true;
+        type             incompressible;
+        solver           simple;
+        solutionControls
+        {
+            nIters __PRIMAL_ITERS__;
+            residualControl { "p.*" 1e-6; "U.*" 1e-6; "nuTilda.*" 1e-6; }
+        }
+    }
+}
+
+adjointManagers
+{
+    am1
+    {
+        primalSolver     op1;
+        adjointSolvers
+        {
+            adj
+            {
+                active       true;
+                type         incompressible;
+                solver       adjointSimple;
+                objectives
+                {
+                    type         incompressible;
+                    objectiveNames
+                    {
+                        __OBJ__
+                        {
+                            weight     1.0;
+                            type       force;
+                            patches    (airfoil);
+                            direction  __OBJ_DIR__;
+                            Aref       0.05;
+                            rhoInf     1.0;
+                            UInf       1.0;
+                        }
+                    }
+                }
+                ATCModel { ATCModel standard; }
+                solutionControls
+                {
+                    nIters __ADJ_ITERS__;
+                    residualControl { "pa.*" 1e-6; "Ua.*" 1e-6; "nuaTilda.*" 1e-6; }
+                }
+            }
+        }
+    }
+}
+
+optimisation
+{
+    designVariables
+    {
+        sensitivityType surfacePoints;
+        patches         (airfoil);
+    }
+}

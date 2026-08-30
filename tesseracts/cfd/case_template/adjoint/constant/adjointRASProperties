@@ -1,0 +1,4 @@
+FoamFile { version 2.0; format ascii; class dictionary; object adjointRASProperties; }
+
+adjointRASModel      adjointSpalartAllmaras;
+adjointTurbulence    on;

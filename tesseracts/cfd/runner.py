@@ -41,7 +41,7 @@ def _reference_mesh(cache_root):
     ref = Path(cache_root) / "reference"
     if not (ref / "constant/polyMesh/points").exists():
         shutil.rmtree(ref, ignore_errors=True)
-        shutil.copytree(TEMPLATE, ref)
+        shutil.copytree(TEMPLATE, ref, ignore=shutil.ignore_patterns("adjoint"))
         _foam("blockMesh", ref, ref / "log.blockMesh")
     return ref
 
@@ -54,7 +54,7 @@ def prepare_mesh(x_surf, workdir, morph_radius=0.6):
         return mesh
     workdir.mkdir(parents=True, exist_ok=True)
     ref = _reference_mesh(workdir.parent)
-    shutil.copytree(TEMPLATE, mesh)
+    shutil.copytree(TEMPLATE, mesh, ignore=shutil.ignore_patterns("adjoint"))
     shutil.rmtree(mesh / "constant/polyMesh", ignore_errors=True)
     shutil.copytree(ref / "constant/polyMesh", mesh / "constant/polyMesh")
     morph.morph_case(mesh, np.asarray(x_surf), radius=morph_radius)
@@ -96,12 +96,16 @@ def _converged(case):
     return "SIMPLE solution converged" in log
 
 
+def _case_ignore(_dir, names):
+    return [n for n in names if n == "postProcessing" or (n.isdigit() and n != "0")]
+
+
 def solve(mesh_dir, alpha_deg, reynolds, workdir, restart_from=None):
     """One primal at a fixed angle of attack on the prepared mesh."""
     case = Path(workdir)
     if case.exists():
         shutil.rmtree(case)
-    shutil.copytree(mesh_dir, case)
+    shutil.copytree(mesh_dir, case, ignore=_case_ignore)
     if restart_from is not None:
         src = max((Path(restart_from) / "0").parent.glob("[0-9]*"), key=lambda p: float(p.name))
         for f in FIELDS:
@@ -127,7 +131,8 @@ def run_trim(x_surf, cl_target, reynolds, workdir, alpha0=0.0, tol=2e-3, max_ite
         history.append({"alpha_deg": alpha, "Cl": r["Cl"], "Cd": r["Cd"]})
         if abs(r["Cl"] - cl_target) <= tol:
             return {"Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"], "alpha_deg": alpha,
-                    "trim_iterations": it + 1, "converged": r["converged"], "history": history}
+                    "trim_iterations": it + 1, "converged": r["converged"],
+                    "case": str(r["case"]), "history": history}
         if prev is None:
             alpha_next = alpha + (cl_target - r["Cl"]) / 0.1
         else:
@@ -136,7 +141,8 @@ def run_trim(x_surf, cl_target, reynolds, workdir, alpha0=0.0, tol=2e-3, max_ite
         prev = {"case": r["case"], "Cl": r["Cl"], "alpha_deg": alpha}
         alpha = alpha_next
     return {"Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"], "alpha_deg": alpha,
-            "trim_iterations": max_iter, "converged": False, "history": history}
+            "trim_iterations": max_iter, "converged": False,
+            "case": str(r["case"]), "history": history}
 
 
 def run_primal(x_surf, alpha_deg, reynolds, workdir, morph_radius=0.6):
@@ -145,3 +151,76 @@ def run_primal(x_surf, alpha_deg, reynolds, workdir, morph_radius=0.6):
     r = solve(mesh, alpha_deg, reynolds, Path(workdir) / "case")
     return {"Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"],
             "alpha_deg": alpha_deg, "converged": r["converged"]}
+
+
+ADJOINT_OVERLAY = TEMPLATE / "adjoint"
+RESTART_FIELDS = ("U", "p", "phi", "nut", "nuTilda")
+
+
+def _dir_tuple(vec):
+    return f"({vec[0]:.12g} {vec[1]:.12g} 0)"
+
+
+def _read_point_scalar(path):
+    body = morph._foam_list(Path(path).read_text())
+    return np.array([float(x) for x in body.split()])
+
+
+def _adjoint_one(primal_case, obj_name, obj_dir, reynolds, case,
+                 primal_iters=400, adj_iters=2000):
+    if case.exists():
+        shutil.rmtree(case)
+    shutil.copytree(primal_case, case, ignore=shutil.ignore_patterns("adjoint", "postProcessing"))
+    latest = max(case.glob("[0-9]*"), key=lambda p: float(p.name))
+    for f in RESTART_FIELDS:
+        if (latest / f).exists() and latest.name != "0":
+            shutil.copy(latest / f, case / "0" / f)
+    if latest.name != "0":
+        shutil.rmtree(latest)
+
+    (case / "system/fvSchemes").rename(case / "system/fvSchemes.primal")
+    for sub in ("0", "constant", "system"):
+        for f in (ADJOINT_OVERLAY / sub).iterdir():
+            shutil.copy(f, case / sub / f.name)
+
+    opt = (case / "system/optimisationDict").read_text()
+    opt = (opt.replace("__OBJ__", obj_name).replace("__OBJ_DIR__", _dir_tuple(obj_dir))
+           .replace("__PRIMAL_ITERS__", str(primal_iters))
+           .replace("__ADJ_ITERS__", str(adj_iters)))
+    (case / "system/optimisationDict").write_text(opt)
+
+    tp = (case / "constant/transportProperties").read_text()
+    (case / "constant/transportProperties").write_text(
+        re.sub(r"nu\s+\S+;", f"nu              {UINF * CHORD / reynolds:.10g};", tp)
+    )
+    _foam("adjointOptimisationFoam", case, case / "log.adjoint")
+
+    sens = sorted(case.glob("[0-9]*/pointSensNormaladj*"))
+    if not sens:
+        raise RuntimeError(f"no point sensitivity written (see {case / 'log.adjoint'})")
+    return _read_point_scalar(sens[-1])
+
+
+def run_adjoint(primal_case, alpha_deg, reynolds, workdir, adj_iters=2000, primal_iters=200):
+    """Drag and lift shape sensitivities dJ/dn per mesh point, from two
+    single-objective adjointOptimisationFoam runs restarted off primal_case."""
+    a = math.radians(alpha_deg)
+    workdir = Path(workdir)
+    return {
+        "drag": _adjoint_one(Path(primal_case), "drag", (math.cos(a), math.sin(a)),
+                             reynolds, workdir / "drag", primal_iters, adj_iters),
+        "lift": _adjoint_one(Path(primal_case), "lift", (-math.sin(a), math.cos(a)),
+                             reynolds, workdir / "lift", primal_iters, adj_iters),
+    }
+
+
+def alpha_derivatives(primal_case, alpha_deg, reynolds, workdir, dalpha=0.25):
+    """Central-difference dCd/dalpha and dCl/dalpha (per degree), warm-restarted."""
+    workdir = Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    plus = solve(primal_case, alpha_deg + dalpha, reynolds, workdir / "plus",
+                 restart_from=primal_case)
+    minus = solve(primal_case, alpha_deg - dalpha, reynolds, workdir / "minus",
+                  restart_from=primal_case)
+    return {"dCd_da": (plus["Cd"] - minus["Cd"]) / (2 * dalpha),
+            "dCl_da": (plus["Cl"] - minus["Cl"]) / (2 * dalpha)}

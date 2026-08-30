@@ -1,0 +1,11 @@
+FoamFile { version 2.0; format ascii; class volVectorField; object Ua; }
+
+dimensions      [0 1 -1 0 0 0 0];
+internalField   uniform (0 0 0);
+
+boundaryField
+{
+    airfoil   { type adjointWallVelocity; value uniform (0 0 0); }
+    farfield  { type adjointFarFieldVelocity; value uniform (0 0 0); }
+    "(front|back)" { type empty; }
+}
