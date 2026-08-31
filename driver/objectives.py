@@ -31,9 +31,10 @@ def epsilon_problem(forward, config, eps):
 
     objective(theta) -> Cd / cd_ref
     constraints(theta) -> vector that must stay <= 0: the normalized echo width
-    against eps, then the geometric constraints.
+    against eps, the lift shortfall, then the geometric constraints.
     """
     cd_ref, sigma_ref = references(config)
+    cl_target = float(config["aero"]["cl_target"])
 
     def objective(theta):
         return forward(theta)["Cd"] / cd_ref
@@ -42,6 +43,7 @@ def epsilon_problem(forward, config, eps):
         out = forward(theta)
         return jnp.concatenate([
             jnp.atleast_1d(out["sigma_agg"] / sigma_ref - eps),
+            jnp.atleast_1d(1.0 - out["Cl"] / cl_target),
             out["g_geom"],
         ])
 

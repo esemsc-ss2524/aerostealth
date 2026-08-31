@@ -14,8 +14,8 @@ geometry:
 aero:
   reynolds: 6.0e6
   mach: 0.18
+  alpha_deg: 3.7306
   cl_target: 0.4
-  trim: newton_aoa
   solver: openfoam
 
 em:

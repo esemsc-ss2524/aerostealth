@@ -64,7 +64,7 @@ adjointManagers
                 {
                     nNonOrthogonalCorrectors 2;
                     nIters __ADJ_ITERS__;
-                    residualControl { "pa.*" 1e-6; "Ua.*" 1e-6; "nuaTilda.*" 1e-6; }
+                    residualControl { "pa.*" 1e-8; "Ua.*" 1e-8; "nuaTilda.*" 1e-8; }
                 }
             }
         }

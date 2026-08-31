@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""End-to-end cfd primal: geom -> morph -> simpleFoam -> trimmed Cd/Cl.
+"""End-to-end cfd primal: geom -> morph -> simpleFoam -> Cd/Cl at fixed alpha.
 
 Slow (shells out to OpenFOAM, minutes). Opt in with AEROSTEALTH_SLOW_TESTS=1.
 """
@@ -21,14 +21,14 @@ pytestmark = [
 ]
 
 
-def test_trim_to_target_cl():
+def test_primal_coefficients():
     geom = local_tesseract("geom")
     cfd = local_tesseract("cfd")
 
-    theta = np.concatenate([[0.17, 0.15, 0.16, 0.14, 0.15, 0.14]] * 1)
+    theta = np.array([0.17, 0.15, 0.16, 0.14, 0.15, 0.14])
     theta = np.concatenate([theta, -theta])
     x_surf = np.asarray(geom.apply({"theta": theta, "n_surface": 161})["x_surf"])
 
-    out = cfd.apply({"x_surf": x_surf, "cl_target": 0.4, "alpha_deg": 3.0})
-    assert abs(float(out["Cl"]) - 0.4) < 5e-3
+    out = cfd.apply({"x_surf": x_surf, "alpha_deg": 3.7306})
+    assert 0.3 < float(out["Cl"]) < 0.5
     assert 0.005 < float(out["Cd"]) < 0.05

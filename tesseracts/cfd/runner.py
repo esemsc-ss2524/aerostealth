@@ -20,7 +20,6 @@ DEFAULT_BASHRC = Path.home() / "side-projects/openfoam/etc/bashrc"
 UINF = 60.0
 CHORD = 1.0
 TURB_INIT = 25.0
-FIELDS = ("U", "p", "nut", "nuTilda")
 
 sys.path.insert(0, str(CFD_DIR / "mesh"))
 import morph  # noqa: E402
@@ -50,6 +49,15 @@ def _reference_mesh(cache_root):
             gz.with_suffix("").write_bytes(gzip.decompress(gz.read_bytes()))
             gz.unlink()
     return ref
+
+
+def reference_points(workdir):
+    """Un-morphed points of the shared reference mesh behind this run directory.
+
+    The morph transpose has to be built on these, not on the case's own points,
+    which prepare_mesh has already displaced onto the target curve.
+    """
+    return _reference_mesh(Path(workdir).parent) / "constant/polyMesh/points"
 
 
 def prepare_mesh(x_surf, workdir, morph_radius=0.6):
@@ -82,8 +90,10 @@ def _set_flow_conditions(case, alpha_deg, reynolds):
 
     for field in ("nuTilda", "nut"):
         f = case / "0" / field
-        f.write_text(re.sub(r"uniform 2\.5e-0?4", f"uniform {TURB_INIT * nu:.10g}",
-                            f.read_text()))
+        text, n = re.subn(r"uniform 2\.5e-0?4", f"uniform {TURB_INIT * nu:.10g}", f.read_text())
+        if n == 0:
+            raise RuntimeError(f"no freestream value substituted in 0/{field}")
+        f.write_text(text)
 
     tp = (case / "constant/transportProperties").read_text()
     (case / "constant/transportProperties").write_text(
@@ -91,9 +101,18 @@ def _set_flow_conditions(case, alpha_deg, reynolds):
     )
 
     cd = (case / "system/controlDict").read_text()
-    cd = cd.replace("liftDir         (0 1 0)", f"liftDir         ({lx:.10g} {ly:.10g} 0)")
-    cd = cd.replace("dragDir         (1 0 0)", f"dragDir         ({dx:.10g} {dy:.10g} 0)")
+    cd = _set_vector(cd, "liftDir", lx, ly)
+    cd = _set_vector(cd, "dragDir", dx, dy)
     (case / "system/controlDict").write_text(cd)
+
+
+def _set_vector(text, keyword, vx, vy):
+    """Substitute on the keyword, never on an expected literal: a silent no-op
+    here leaves the force resolved along a stale axis."""
+    new, n = re.subn(rf"({keyword}\s+)\([^)]*\)", rf"\g<1>({vx:.10g} {vy:.10g} 0)", text)
+    if n == 0:
+        raise RuntimeError(f"{keyword} not found in controlDict")
+    return new
 
 
 def _coefficient_rows(case):
@@ -106,17 +125,13 @@ def _parse_forces(case):
     return {"Cd": float(last[1]), "Cl": float(last[4]), "Cm": float(last[7])}
 
 
-def _converged(case, window=200, tol=1e-4):
-    """Accept a solve whose forces have stopped moving, not only one that tripped
-    residualControl.
+def _converged(case, window=200, tol=5e-5):
+    """Gate on stationary forces, never on the residualControl banner.
 
-    A section far from the reference can hold Cd and Cl steady to six figures for
-    hundreds of iterations while the residuals sit just above the threshold.
-    Rejecting those loses good designs; what the objective needs is that the
-    coefficients are stationary.
+    Cd drifts monotonically long after the residuals pass their threshold: at
+    1e-6 it is still 4e-4 off its own converged value. This window is calibrated
+    so a run that stops there fails and one that reaches 3e-6 passes.
     """
-    if "SIMPLE solution converged" in (case / "log.simpleFoam").read_text():
-        return True
     rows = _coefficient_rows(case)
     if len(rows) < window:
         return False
@@ -129,17 +144,12 @@ def _case_ignore(_dir, names):
     return [n for n in names if n == "postProcessing" or (n.isdigit() and n != "0")]
 
 
-def solve(mesh_dir, alpha_deg, reynolds, workdir, restart_from=None):
+def solve(mesh_dir, alpha_deg, reynolds, workdir):
     """One primal at a fixed angle of attack on the prepared mesh."""
     case = Path(workdir)
     if case.exists():
         shutil.rmtree(case)
     shutil.copytree(mesh_dir, case, ignore=_case_ignore)
-    if restart_from is not None:
-        src = max((Path(restart_from) / "0").parent.glob("[0-9]*"), key=lambda p: float(p.name))
-        for f in FIELDS:
-            shutil.copy(src / f, case / "0" / f)
-
     _set_flow_conditions(case, alpha_deg, reynolds)
     _foam("simpleFoam", case, case / "log.simpleFoam")
     out = _parse_forces(case)
@@ -148,8 +158,8 @@ def solve(mesh_dir, alpha_deg, reynolds, workdir, restart_from=None):
     return out
 
 
-class TrimFailure(RuntimeError):
-    """The trim never reached the target lift on a converged primal.
+class PrimalFailure(RuntimeError):
+    """The primal did not reach stationary forces.
 
     Raised rather than returned: a diverged primal produces a plausible-looking
     Cd and an adjoint built on top of it, and nothing downstream can tell the
@@ -157,66 +167,37 @@ class TrimFailure(RuntimeError):
     """
 
 
-TRIM_CACHE = "trim.json"
+PRIMAL_CACHE = "primal.json"
 
 
-def _read_trim_cache(workdir, cl_target):
-    path = Path(workdir) / TRIM_CACHE
+def _read_primal_cache(workdir, alpha_deg):
+    path = Path(workdir) / PRIMAL_CACHE
     if not path.exists():
         return None
     cached = json.loads(path.read_text())
-    if cached.get("cl_target") != cl_target or not Path(cached["case"]).exists():
+    if cached.get("alpha_deg") != alpha_deg or not Path(cached["case"]).exists():
         return None
     return cached
 
 
-def _write_trim_cache(workdir, cl_target, result):
-    (Path(workdir) / TRIM_CACHE).write_text(json.dumps({**result, "cl_target": cl_target}))
-    return result
+def run_primal(x_surf, alpha_deg, reynolds, workdir, morph_radius=0.6):
+    """Converged primal at a fixed angle of attack, cached beside the run.
 
-
-def run_trim(x_surf, cl_target, reynolds, workdir, alpha0=0.0, tol=2e-3, max_iter=6):
-    """Newton/secant trim: iterate the angle of attack until Cl matches cl_target.
-
-    The converged result is cached beside the run, since apply and the vjp are
-    separate endpoint calls on the same design and would otherwise each pay for
-    a full trim.
+    apply and the vjp are separate endpoint calls on the same design and would
+    otherwise each pay for a full solve.
     """
     workdir = Path(workdir)
-    cached = _read_trim_cache(workdir, cl_target)
+    cached = _read_primal_cache(workdir, alpha_deg)
     if cached is not None:
         return cached
-    mesh = prepare_mesh(x_surf, workdir)
-    history = []
-    alpha, prev = alpha0, None
-    for it in range(max_iter):
-        r = solve(mesh, alpha, reynolds, workdir / f"it{it}",
-                  restart_from=prev["case"] if prev else None)
-        history.append({"alpha_deg": alpha, "Cl": r["Cl"], "Cd": r["Cd"]})
-        if abs(r["Cl"] - cl_target) <= tol and r["converged"]:
-            return _write_trim_cache(workdir, cl_target, {
-                "Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"], "alpha_deg": alpha,
-                "trim_iterations": it + 1, "converged": r["converged"],
-                "case": str(r["case"]), "history": history})
-        if prev is None:
-            alpha_next = alpha + (cl_target - r["Cl"]) / 0.1
-        else:
-            slope = (r["Cl"] - prev["Cl"]) / (alpha - prev["alpha_deg"])
-            alpha_next = alpha - (r["Cl"] - cl_target) / slope
-        prev = {"case": r["case"], "Cl": r["Cl"], "alpha_deg": alpha}
-        alpha = alpha_next
-    raise TrimFailure(
-        f"no converged primal at Cl={cl_target} in {max_iter} iterations "
-        f"(last Cl={r['Cl']:.4f}, converged={r['converged']}); history={history}"
-    )
-
-
-def run_primal(x_surf, alpha_deg, reynolds, workdir, morph_radius=0.6):
-    """Single primal at a fixed angle of attack (no trim)."""
     mesh = prepare_mesh(x_surf, workdir, morph_radius)
-    r = solve(mesh, alpha_deg, reynolds, Path(workdir) / "case")
-    return {"Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"],
-            "alpha_deg": alpha_deg, "converged": r["converged"]}
+    r = solve(mesh, alpha_deg, reynolds, workdir / "primal")
+    if not r["converged"]:
+        raise PrimalFailure(f"forces not stationary at alpha={alpha_deg} (see {r['case']})")
+    result = {"Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"], "alpha_deg": alpha_deg,
+              "case": str(r["case"])}
+    (workdir / PRIMAL_CACHE).write_text(json.dumps(result))
+    return result
 
 
 ADJOINT_OVERLAY = TEMPLATE / "adjoint"
@@ -232,6 +213,34 @@ def _read_point_vector(path):
     body = morph._foam_list(Path(path).read_text().split("internalField", 1)[1])
     rows = [ln.strip()[1:-1].split() for ln in body.splitlines() if ln.strip().startswith("(")]
     return np.array([[float(r[0]), float(r[1])] for r in rows])
+
+
+# Only the normal component changes the shape; tangential motion slides nodes
+# along the same curve and the morph transpose cannot tell the two apart.
+SENS_FIELD = "pointSensNormalVecadj*"
+
+# Healthy peaks are 0.03 to 0.17 (drag) and 3 to 8 (lift); a runaway is 1e80.
+SENS_MAX = 1.0e6
+MESH_MOVEMENT_MAX = 1.0e3
+
+
+class AdjointFailure(RuntimeError):
+    """The adjoint ran to completion but its sensitivity field is not usable."""
+
+
+def _check_adjoint(case, sens):
+    """adjointOptimisationFoam exits 0 and writes a full sensitivity field even
+    when the adjoint mesh-movement solve has run away, so the return code says
+    nothing."""
+    ma = [float(m) for m in re.findall(r"Max ma ([0-9.e+-]+)", (case / "log.adjoint").read_text())]
+    if ma and max(ma) > MESH_MOVEMENT_MAX:
+        raise AdjointFailure(
+            f"adjoint mesh movement diverged (max ma {max(ma):.3e}) in {case}"
+        )
+    peak = float(np.abs(sens).max()) if sens.size else 0.0
+    if not np.isfinite(sens).all() or peak > SENS_MAX:
+        raise AdjointFailure(f"adjoint sensitivity peak {peak:.3e} in {case}")
+    return sens
 
 
 def _adjoint_one(primal_case, obj_name, obj_dir, reynolds, case,
@@ -262,10 +271,10 @@ def _adjoint_one(primal_case, obj_name, obj_dir, reynolds, case,
     )
     _foam("adjointOptimisationFoam", case, case / "log.adjoint")
 
-    sens = sorted(case.glob("[0-9]*/pointSensVecadj*"))
+    sens = sorted(case.glob(f"[0-9]*/{SENS_FIELD}"), key=lambda p: float(p.parent.name))
     if not sens:
         raise RuntimeError(f"no point sensitivity written (see {case / 'log.adjoint'})")
-    return _read_point_vector(sens[-1])
+    return _check_adjoint(case, _read_point_vector(sens[-1]))
 
 
 def run_adjoint(primal_case, alpha_deg, reynolds, workdir, adj_iters=3000, primal_iters=200):
@@ -281,13 +290,3 @@ def run_adjoint(primal_case, alpha_deg, reynolds, workdir, adj_iters=3000, prima
     }
 
 
-def alpha_derivatives(primal_case, alpha_deg, reynolds, workdir, dalpha=0.25):
-    """Central-difference dCd/dalpha and dCl/dalpha (per degree), warm-restarted."""
-    workdir = Path(workdir)
-    workdir.mkdir(parents=True, exist_ok=True)
-    plus = solve(primal_case, alpha_deg + dalpha, reynolds, workdir / "plus",
-                 restart_from=primal_case)
-    minus = solve(primal_case, alpha_deg - dalpha, reynolds, workdir / "minus",
-                  restart_from=primal_case)
-    return {"dCd_da": (plus["Cd"] - minus["Cd"]) / (2 * dalpha),
-            "dCl_da": (plus["Cl"] - minus["Cl"]) / (2 * dalpha)}

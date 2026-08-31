@@ -4,20 +4,11 @@ constraint: sigma_agg
 
 epsilon:
   points: 8
-  include_anchors: true
-  schedule: linear
-
-warm_start: previous
 
 optimizer:
-  name: SLSQP
-  max_iter: 6
+  name: MMA
+  max_iter: 12
+  anchor_max_iter: 200
   ftol: 1.0e-6
-  step_bound: 0.04
-
-ks_continuation:
-  rho_start: 10.0
-  rho_end: 60.0
-
-reanchor:
-  shape_drift_tol: 0.15
+  step_bound: 0.05
+  retries: 2

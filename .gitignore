@@ -20,3 +20,4 @@ tesseracts/cfd/case_run/
 
 # tesseract run scratch
 tesseracts/*/_run/
+tesseracts/*/_check/

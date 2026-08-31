@@ -136,14 +136,36 @@ def morph_case(case, target_curve, radius=0.6, patch="airfoil"):
     return points
 
 
-def morph_vjp(case, target_curve, cotangent_xy, radius=0.6, patch="airfoil"):
+def _assert_aligned(points, ref):
+    """The cotangent is indexed by the case's mesh points, so the reference file
+    has to be in that same order. z is 0 or 1 per span plane, which any
+    reordering would scramble, so it is the cheapest sharp test available."""
+    if points.shape != ref.shape:
+        raise ValueError(f"reference has {ref.shape[0]} points, case has {points.shape[0]}")
+    if np.abs(points[:, 2] - ref[:, 2]).max() > 1e-8:
+        raise ValueError("reference and case points are not in the same order")
+
+
+def morph_vjp(case, target_curve, cotangent_xy, radius=0.6, patch="airfoil",
+              reference_points=None):
     """Pull dJ/d(mesh point xy) back to dJ/d(target_curve) through the morph.
-    cotangent_xy: (nPoints, 2). Returns (n_target, 2)."""
+    cotangent_xy: (nPoints, 2). Returns (n_target, 2).
+
+    The morph is linear in the target curve about the *reference* node positions,
+    so the transpose has to be built there. The case's own points are the morphed
+    ones, and linearizing on those biases the projected gradient by the
+    displacement over the support radius.
+    """
     pm = Path(case) / "constant/polyMesh"
     points = read_points(pm / "points")
-    centers_xy = points[_centers(case, points, patch), :2]
+    if reference_points is None:
+        ref = points
+    else:
+        ref = read_points(reference_points)
+        _assert_aligned(points, ref)
 
-    near = support_mask(points[:, :2], centers_xy, radius)
-    operator = build_operator(points[near, :2], centers_xy, radius)
+    centers_xy = ref[_centers(case, ref, patch), :2]
+    near = support_mask(ref[:, :2], centers_xy, radius)
+    operator = build_operator(ref[near, :2], centers_xy, radius)
     w = projection_weights(centers_xy, np.asarray(target_curve)[:, :2])
     return w.T @ (operator.T @ np.asarray(cotangent_xy)[near])

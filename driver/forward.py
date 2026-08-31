@@ -32,7 +32,7 @@ def geom_inputs(config):
 
 def cfd_inputs(config):
     a = config["aero"]
-    return {"cl_target": float(a["cl_target"]), "reynolds": float(a["reynolds"])}
+    return {"alpha_deg": float(a["alpha_deg"]), "reynolds": float(a["reynolds"])}
 
 
 def em_inputs(config):

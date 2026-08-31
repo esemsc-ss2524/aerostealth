@@ -47,7 +47,8 @@ _have_of = shutil.which("adjointOptimisationFoam") is not None
     not (_slow and _have_of),
     reason="set AEROSTEALTH_SLOW_TESTS=1 with OpenFOAM for the adjoint vs FD check",
 )
-def test_drag_adjoint_vs_fd():
+@pytest.mark.parametrize("coefficient", ["Cd", "Cl"])
+def test_adjoint_vs_fd(coefficient):
     import jax
 
     jax.config.update("jax_enable_x64", True)
@@ -59,16 +60,17 @@ def test_drag_adjoint_vs_fd():
     geom = local_tesseract("geom")
     w = np.array([0.171, 0.154, 0.162, 0.135, 0.146, 0.144])
     theta = np.concatenate([w, -w])
+    alpha, re = 3.7306, 6.0e6
 
     def xsurf(th):
         return np.asarray(geom.apply({"theta": th, "n_surface": 161})["x_surf"])
 
     tmp = Path(os.environ.get("PYTEST_TMPDIR", "/tmp")) / "cfd_adjoint_fd"
-    sens = sensitivity.trimmed_sensitivity(xsurf(theta), 0.4, 6.0e6, tmp / "adj", alpha0=3.7)
+    sens = sensitivity.shape_sensitivity(xsurf(theta), alpha, re, tmp / "adj")
     dtheta = np.asarray(
         geom.vector_jacobian_product(
             {"theta": theta, "n_surface": 161}, ["theta"], ["x_surf"],
-            {"x_surf": sens["dCd_trim_dx_surf"]},
+            {"x_surf": sens[f"d{coefficient}_dx_surf"]},
         )["theta"]
     )
 
@@ -76,8 +78,7 @@ def test_drag_adjoint_vs_fd():
     tp, tm = theta.copy(), theta.copy()
     tp[k] += h
     tm[k] -= h
-    a0 = sens["alpha_deg"]
-    cd_p = sensitivity.runner.run_trim(xsurf(tp), 0.4, 6.0e6, tmp / "p", alpha0=a0)["Cd"]
-    cd_m = sensitivity.runner.run_trim(xsurf(tm), 0.4, 6.0e6, tmp / "m", alpha0=a0)["Cd"]
-    fd = (cd_p - cd_m) / (2 * h)
+    plus = sensitivity.runner.run_primal(xsurf(tp), alpha, re, tmp / "p")[coefficient]
+    minus = sensitivity.runner.run_primal(xsurf(tm), alpha, re, tmp / "m")[coefficient]
+    fd = (plus - minus) / (2 * h)
     assert abs(dtheta[k] - fd) / (abs(fd) + 1e-9) < 0.2
