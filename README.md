@@ -18,6 +18,22 @@ The method, the Pareto front and the gradient validation are written up in
 
 License: Apache-2.0.
 
+## The front
+
+16 MMA runs converging on the front, one design at a time, colouring blue as
+they approach it. One run is picked out in red, and the panels on the right show
+its flow and radar signature as it descends. The front is then walked end to
+end, with the panels following the design under the cursor:
+
+![Pareto front tour](analysis/figures/pareto_tour.gif)
+
+Echo width falls 16.5 percent at no drag cost, then a further 9.9 percent costs
+6.9 percent of drag. The reason is the leading edge: it sharpens from 0.0070 to
+0.0032 chords along the front, which removes the specular return and deepens the
+suction peak.
+
+![Why the trade-off exists](analysis/figures/pareto_mechanism.gif)
+
 ## Environment
 
 Python 3.11 or newer, in a fresh virtual environment:
@@ -57,6 +73,7 @@ paper/        writeup.md
 pytest
 python -m driver.optimize --baseline configs/baseline.yaml --sweep configs/sweep.yaml
 python -m analysis.report
+python -m analysis.animate             # the two animations above
 ```
 
 The sweep writes the front to `outputs/pareto.json`, and one

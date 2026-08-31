@@ -331,8 +331,10 @@ for a smooth-maximum objective.
 *Figure 5. Wall pressure coefficient. The suction peak deepens as echo width
 falls.*
 
-The shapes move maximum thickness forward and sharpen the leading edge, and the
-wall pressure distributions show what that costs. The suction peak deepens from
+Along the front the leading edge sharpens steadily, its radius falling from
+0.0070 to 0.0032 chords, while the maximum thickness grows slightly and moves
+aft, from 12.1 percent at $x/c = 0.42$ to 12.5 percent at $x/c = 0.44$. The wall
+pressure distributions show what the sharper nose costs. The suction peak deepens from
 about $C_p = -1.5$ at the knee to $-2.4$ at the stealth anchor, with a stronger
 adverse pressure gradient behind it. This is the physical content of the knee.
 Flattening the section to direct the specular return out of the sector is free
