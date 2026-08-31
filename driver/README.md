@@ -33,36 +33,51 @@ than two minutes.
 `optimize.run_sweep` solves
 
 ```
-min Cd  s.t.  sigma_agg <= eps_k,  g_geom <= 0
+min Cd  s.t.  sigma_agg <= eps_k,  Cl >= Cl*,  g_geom <= 0
 ```
 
-at a schedule of `eps_k` between two anchors, each level warm-started from the
-previous solution. `Cl = Cl*` is absent from the outer problem because the `cfd`
-tesseract trims to it internally and reports the gradient at fixed lift.
+at a fixed angle of attack, over a schedule of `eps_k` between two anchors.
+Lift is a genuine constraint carried by the optimizer and its gradient is the
+lift adjoint, so no quantity in the problem is finite-differenced.
 
 The anchors come from the two ends: `min Cd` with the echo width unconstrained,
-and `min sigma_agg` subject to geometry only. Both objectives are divided by the
-baseline values in `configs/baseline.yaml`, since `Cd` and the echo width have
-comparable magnitudes but shape sensitivities orders of magnitude apart.
+and `min sigma_agg` subject to geometry only. Each intermediate level is
+warm-started from the two anchor design vectors blended by where its `eps_k`
+sits between them, which starts every level near its own solution rather than
+marching in from a neighbour. Both objectives are divided by the baseline values
+in `configs/baseline.yaml`, and the constraint rows by their own bounds, so the
+optimizer sees a problem of order one throughout.
 
-`Evaluator` memoizes one forward and one reverse pass per design vector, because
-nlopt asks for the objective and the constraints separately at the same point.
-Only `Cd` needs OpenFOAM, so the aero leg is differentiated on its own and the
-cheap leg supplies the constraint jacobian; no wasted adjoint runs.
+The optimizer is MMA. It asks for a gradient on every call, so no OpenFOAM
+solve is spent on a line-search probe that gets discarded; SLSQP asks for a
+value without a gradient roughly seventy percent of the time. A design the aero
+leg will not solve or differentiate shrinks the move limit and restarts the
+level rather than being papered over with a fabricated gradient.
+
+`Evaluator` memoizes per design vector, and skips the adjoints entirely
+(`grad=False`) for a point that is being reported rather than stepped from.
+
+Levels run in separate processes, not threads: concurrent `apply_tesseract`
+calls from several threads of one interpreter abort the process without a
+traceback. Set `optimizer.jobs` to the number of physical cores. Throughput
+scales sublinearly because the OpenFOAM linear solvers are memory-bandwidth
+bound.
 
 ## Design variables
 
 `theta` is `[upper weights, lower weights]`, bounded so the upper stay positive
-and the lower negative. That guarantees positive thickness everywhere, which
-keeps the RBF mesh morph valid, while still leaving camber free through the
-difference in magnitudes.
+and the lower negative. That keeps the surfaces apart in practice and the RBF
+mesh morph valid, but it is a box, not a guarantee: `g_geom` bounds the
+*maximum* thickness, so nothing forbids the surfaces crossing at some chordwise
+station. Widening the box wants a pointwise thickness constraint first.
 
 ## Cost
 
-The cheap leg is seconds. Each `Cd` value-and-gradient is an OpenFOAM trim plus
-two adjoint solves plus two angle-of-attack primals, so the sweep budget is set
-almost entirely by how many aero gradient calls the schedule allows. Keep
-`optimizer.max_iter` small and lean on warm starts between epsilon levels.
+The cheap leg is seconds. Each `Cd` value-and-gradient is one converged primal
+plus two adjoint solves, and both coefficients share them, so asking for Cd and
+Cl costs what asking for either would. The sweep budget is set almost entirely
+by how many aero gradient calls the schedule allows.
 
-Aero gradients carry the caveat in `../tesseracts/cfd/README.md`: the drag
-adjoint disagrees with converged finite differences. The sweep uses it as-is.
+Aero gradients carry the caveat in `../tesseracts/cfd/README.md`: the lift
+adjoint agrees with finite differences to 7.9 degrees, the drag adjoint only to
+60. Both are used as-is.

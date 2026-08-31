@@ -31,9 +31,10 @@ matching update to both adapters.
 - `level_set` is a signed distance field on an `(raster_ny, raster_nx)` grid
   over `raster_bbox = (xmin, xmax, ymin, ymax)`, in the same units as `x_surf`.
 - Sign convention: negative inside the airfoil, positive outside. Magnitude is
-  the exact Euclidean distance to the boundary polygon. `em` maps this to a
-  permittivity field with its own smoothing; the raw field is the common
-  intermediate.
+  the exact Euclidean distance to the boundary polygon.
+- Nothing downstream consumes it at present: the method-of-moments `em` leg
+  takes `x_surf` directly. It is kept for a grid-based EM solver, which is what
+  it was added for.
 
 ## Constraints
 

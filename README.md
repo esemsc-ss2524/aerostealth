@@ -1,14 +1,14 @@
 # aerostealth
 
-Gradient-based RCS vs drag co-design. Four differentiable components composed
+Gradient-based RCS vs drag co-design. Three differentiable components composed
 behind Tesseract's uniform `jvp`/`vjp` interface so that
 `theta -> (Cd, Cl, sigma_agg, g_geom)` is one `jax.value_and_grad`-able program,
 traced across a stealth-vs-aero Pareto front by an epsilon-constraint sweep.
 
 - `geom` (JAX, reverse-mode autodiff): CST airfoil to boundary curve, differentiable
   rasterization, geometric constraints.
-- `cfd` (OpenFOAM `adjointOptimisationFoam`): mesh morph, primal RANS, AoA trim,
-  drag adjoint sensitivity.
+- `cfd` (OpenFOAM `adjointOptimisationFoam`): mesh morph, primal RANS at fixed
+  angle of attack, drag and lift adjoint sensitivities.
 - `em` (JAX method of moments): 2D EFIE on the PEC contour, monostatic echo width,
   KS-aggregated and differentiated by autodiff.
 - `driver`: composes `geom -> {cfd, em}` with `tesseract-jax` and runs the sweep.
@@ -17,25 +17,33 @@ License: Apache-2.0.
 
 ## Environment
 
+Python 3.11 or newer, in a fresh virtual environment:
+
 ```
-conda create -n aerostealth --clone ml
-conda activate aerostealth
-pip install tesseract-core tesseract-jax nlopt lz4
+pip install -e ".[analysis,dev]"
 ```
 
-External solvers, sourced from the host:
+The `cfd` leg additionally needs OpenFOAM with `adjointOptimisationFoam` (ESI
+v2606 or compatible). Point the runner at its `bashrc`:
 
-- OpenFOAM ESI v2606 at `~/side-projects/openfoam` (`source ~/side-projects/openfoam/etc/bashrc`).
-  Its adjoint-tutorial NACA 0012 mesh is the CFD reference grid, vendored by
-  `tesseracts/cfd/mesh/vendor.py`.
+```
+export AEROSTEALTH_OF_BASHRC=/path/to/OpenFOAM/etc/bashrc
+```
+
+The reference grid is OpenFOAM's own adjoint-tutorial NACA 0012 mesh, already
+vendored into the repo. Everything except the `cfd` leg runs without OpenFOAM.
+
+Run on CPU (`export JAX_PLATFORMS=cpu`); the problems are small and the GPU path
+is far slower here.
 
 ## Layout
 
 ```
 tesseracts/   geom/ cfd/ em/     one tesseract_api.py + tesseract_config.yaml each
-driver/       optimize.py mgda.py objectives.py surrogate.py tesseracts.py
+driver/       forward.py optimize.py objectives.py tesseracts.py
+              mgda.py surrogate.py  (stubs, not on the path)
 configs/      baseline.yaml sweep.yaml
-analysis/     pareto.py plots.py
+analysis/     pareto.py plots.py gradient_check.py report.py
 tests/        per-tesseract FD checks + end-to-end gradient check
 paper/        writeup.md
 ```
@@ -45,6 +53,12 @@ paper/        writeup.md
 ```
 pytest
 python -m driver.optimize --baseline configs/baseline.yaml --sweep configs/sweep.yaml
+python -m analysis.report
 ```
 
-The sweep writes one Pareto point per epsilon level with its convergence history.
+The sweep writes the front to `outputs/pareto.json`, and one
+`outputs/trajectory_<level>.jsonl` per epsilon level holding a record per design
+evaluated (shape, coefficients, RCS polar, gradient, OpenFOAM case directory).
+`analysis.report` turns those into figures.
+
+Slow tests shell out to OpenFOAM; opt in with `AEROSTEALTH_SLOW_TESTS=1`.

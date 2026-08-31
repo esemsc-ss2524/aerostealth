@@ -4,15 +4,15 @@
 
 ## 1. Problem
 
-## 2. Method: four Tesseracts behind one jvp/vjp interface
+## 2. Method: three Tesseracts behind one jvp/vjp interface
 
 ### 2.1 geom (reverse-mode autodiff)
 
-### 2.2 cfd (continuous adjoint)
+### 2.2 cfd (OpenFOAM continuous adjoint)
 
-### 2.3 em (discrete FDTD adjoint)
+### 2.3 em (method of moments, reverse-mode autodiff)
 
-### 2.4 optimize (tesseract-jax composition, epsilon-constraint sweep)
+### 2.4 driver (tesseract-jax composition, epsilon-constraint sweep with MMA)
 
 ## 3. Results
 

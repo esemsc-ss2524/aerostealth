@@ -1,44 +1,54 @@
 # cfd
 
-`theta -> x_surf` (from `geom`) `-> Cd, Cl, Cm` at `Cl = cl_target`, via an
-OpenFOAM incompressible RANS primal on a morphed reference mesh.
+`theta -> x_surf` (from `geom`) `-> Cd, Cl, Cm` at a fixed angle of attack, via
+an OpenFOAM incompressible RANS primal on a morphed reference mesh.
 
 ## Flow
 
 1. `runner.prepare_mesh` copies the vendored reference mesh (`mesh/vendor.py`,
    see `mesh/README.md`) and morphs it onto `x_surf` with `mesh/morph.py`
    (compact-support RBF, far field fixed, never remeshed).
-2. `runner.run_trim` runs `simpleFoam` (Spalart-Allmaras, freestream
-   boundaries), reads `forceCoeffs`, and steps the angle of attack by a secant
-   Newton iteration until `Cl` matches `cl_target`. Each iteration restarts from
-   the previous angle's fields.
-3. `tesseract_api.apply` hashes `x_surf` and `reynolds` to a run directory under
-   `_run/` (gitignored) and returns `Cd, Cl, Cm`. The trimmed angle and the trim
-   iteration count stay out of the output schema, since `tesseract-jax` expects
-   every declared output to have a shape; they are in the run directory and in
-   `runner.run_trim`'s return value.
+2. `runner.run_primal` runs `simpleFoam` (Spalart-Allmaras, freestream
+   boundaries) and reads `forceCoeffs`. It raises unless the forces are
+   stationary, and caches the converged result beside the run so `apply` and the
+   vjp share one solve.
+3. `tesseract_api.apply` hashes `x_surf`, `alpha_deg` and `reynolds` to a run
+   directory under `_run/` (gitignored) and returns `Cd, Cl, Cm`.
 
-Angle of attack enters through the freestream direction, not the mesh; the
-section stays in the body frame.
+Angle of attack enters through the freestream direction and the force
+directions, not the mesh; the section stays in the body frame.
 
 ## Adjoint (vector_jacobian_product)
 
-`sensitivity.trimmed_sensitivity` assembles the gradient the optimizer needs:
+`sensitivity.shape_sensitivity`:
 
 1. `runner.run_adjoint` runs `adjointOptimisationFoam` (`singleRun`,
-   differentiated Spalart-Allmaras) twice off the trimmed primal, once for the
-   drag objective and once for lift, each restarted from the converged fields.
-   Output is the point sensitivity vector `dJ/dx` on the airfoil.
-2. `runner.alpha_derivatives` central-differences `dCd/dalpha` and `dCl/dalpha`
-   with two warm-restarted primals.
-3. `morph.morph_vjp` pulls each `dJ/dx` back through the linear RBF morph to
+   differentiated Spalart-Allmaras) twice off the converged primal, once for
+   drag and once for lift. Output is the point sensitivity on the airfoil.
+2. `morph.morph_vjp` pulls each `dJ/dx` back through the linear RBF morph to
    `dJ/dx_surf`.
-4. With the inner trim holding `Cl` at `cl_target`,
-   `dCd/dx|_trim = dCd/dx - (dCd/dalpha / dCl/dalpha) dCl/dx`.
 
-`vector_jacobian_product` returns `cot_Cd * dCd/dx|_trim + cot_Cl * dCl/dx`
+`vector_jacobian_product` returns `cot_Cd * dCd/dx_surf + cot_Cl * dCl/dx_surf`
 (the moment cotangent is ignored). The driver chains this through `geom`'s VJP
-to reach `dCd/dtheta`.
+to reach `dJ/dtheta`. Lift is a constraint in the outer problem, so there is no
+trim and nothing here is finite-differenced.
+
+Two details that are load-bearing:
+
+- The sensitivity read is `pointSensNormalVecadjESI`, the normal-projected
+  field, not the full vector `pointSensVecadjESI`. Only the normal component
+  changes the shape; the raw vector is 45 to 60 percent tangential here, and the
+  morph transpose cannot tell the two apart. With the normal field the whole
+  geometry chain reproduces a finite difference of the morph to four figures;
+  with the full vector it does not.
+- `morph_vjp` builds its operator on the *reference* mesh points, not the
+  case's own, which `prepare_mesh` has already displaced onto the target curve.
+  It asserts the two files are in the same point order before using them.
+
+`runner._check_adjoint` rejects a diverged run. `adjointOptimisationFoam` exits
+0 and writes a full sensitivity field even when the adjoint mesh-movement solve
+has run away, so the return code says nothing; healthy runs report `Max ma`
+around 0.1, a runaway reports 1e80.
 
 ## Configuration
 
@@ -48,9 +58,11 @@ One `system/fvSchemes` and one `system/fvSolution` serve both solvers, so the
 adjoint cannot drift from the primal it is differentiating. Deviations from the
 tutorial are deliberate and limited to:
 
-- `SIMPLE/residualControl` in `fvSolution`, which `simpleFoam` needs for the
-  trim runs and `adjointOptimisationFoam` ignores (it takes its own from
-  `optimisationDict`).
+- `residualControl` at 1e-8, primal and adjoint. At the tutorial's 1e-6 the
+  primal stops with `Cd` still 4e-4 off its own converged value, drifting
+  monotonically. `runner._converged` gates on stationary forces rather than on
+  the residual banner, calibrated so a run that stops at 1e-6 fails and one that
+  reaches 3e-6 relative passes.
 - `includeSurfaceArea true` in `optimisationDict`. The tutorial leaves it
   `false`, which divides the sensitivity by the point dual area to produce a
   map for plotting; the chain rule needs the undivided `dJ/dx`.
@@ -68,50 +80,43 @@ tutorial are deliberate and limited to:
 Freestream speed is 60 and chord is 1, so `nu = 60 / Re`; the design point
 `Re = 6e6` reproduces the tutorial's `nu = 1e-5`.
 
+Substitutions into the dictionaries match on the keyword and raise if they hit
+nothing. Matching on an expected literal is how the force directions silently
+stopped being rotated once a case was copied from an already-rotated one.
+
 ## Environment
 
-Needs OpenFOAM on `PATH`. `runner` shells out through
-`source $AEROSTEALTH_OF_BASHRC` (default `~/side-projects/openfoam/etc/bashrc`).
+Needs OpenFOAM on `PATH` with `adjointOptimisationFoam`. `runner` shells out
+through `source $AEROSTEALTH_OF_BASHRC`.
 
 ## Status
 
-Primal and adjoint both converge on the reference mesh and on RBF-morphed CST
-sections of it, the adjoint to residuals near 1e-8 with the differentiated
-Spalart-Allmaras model.
+Gradients are checked against central finite differences of the converged
+primal on all twelve design variables by `analysis/gradient_check.py`
+(`analysis/figures/cfd_adjoint_vs_fd.png`, `cfd_lift_adjoint_vs_fd.png`).
 
-Sensitivities are checked against central finite differences of the converged
-primal on gaussian shape bumps at six chordwise stations
-(`analysis/figures/cfd_adjoint_vs_fd.png`).
+**Lift** agrees well: cosine 0.9904 against the finite-difference gradient, 7.9
+degrees, with the magnitude a fairly uniform 0.8 of it. A uniform scale factor
+costs a descent method nothing.
 
-For the **lift** objective, whose adjoint converges to 1e-8, sign and shape
-agree everywhere and the adjoint reads 0.68 to 0.92 of the finite difference.
-That deficit is not a numerical artefact: it is unchanged by the finite
-difference step (2e-3 down to 2.5e-4), by the RBF support radius (0.3 to 4.0,
-which is expected since the sensitivity is nonzero only on boundary points), by
-`includeDistance` (2 percent), and by the ATC formulation (`standard` 0.81,
-`UaGradU` 0.78, `cancel` 0.54). `includeMeshMovement` is not optional: with it
-off the formulation changes to `SI` and the ratios scatter over 1.3 to 22.
-What remains is the continuous-adjoint discretization gap, which closes under
-mesh refinement rather than under any dictionary setting.
+**Drag** does not: cosine 0.5007, 60 degrees, three of twelve signs flipped, and
+a leading-edge lower-surface component 6.3x too large that dominates the norm.
+It is still formally a descent direction and MMA does reduce `Cd` with it, at
+about half efficiency.
 
-For the **drag** objective the sensitivity scatters: 0.60, 0.40, 0.70, 1.46,
--1.35, 1.35 against the same finite differences. Two things were ruled out.
-Adjoint convergence is not the cause: the pressure residual stalls near 3e-3
-with no corrector, but 1, 2 and 4 correctors take it to 1.2e-4, 1.3e-5 and
-3.6e-7, and the ratios are identical to three figures throughout (0.59, 0.30,
-0.55, 1.50, -1.30, 1.17), so the adjoint has converged. Nor is the finite
-difference at fault: at the
-station where the two disagree in sign it reads 2.094, 2.144, 2.161 and 2.137
-for steps 4e-3, 2e-3, 1e-3 and 5e-4, against an adjoint value of -2.91.
-
-So the converged drag adjoint disagrees with a converged finite difference, on
-the tutorial's own mesh and configuration. The lift objective on the same run
-does not, which points at the viscous part of the drag force and the grid
-sensitivity of the Spalding wall function rather than at anything in the
-pipeline around it. This is the open item; the trimmed gradient needs it.
+The cause is that the drag adjoint never converges. Its pressure residual
+plateaus near 6e-4 and burns the full 3000-iteration cap, while the lift adjoint
+on the same primal converges on tolerance in 1829. Everything around it has been
+ruled out: the geometry chain reproduces a finite difference of the morph to
+1.0000, the primal reproduces its own converged value, tightening the adjoint
+`residualControl` from 1e-6 to 1e-8 changes the ratios by nothing, and six ATC
+variants leave `standard` the best of them (`cancel` is worse at 82.7 degrees,
+`extraConvection 1` diverges outright). What remains is the viscous part of the
+drag force and the grid sensitivity of the Spalding wall function. This is the
+open item; the sweep uses the gradient as-is.
 
 `tests/test_cfd_morph.py` covers the morph math, `tests/test_cfd_adjoint.py` the
-morph transpose identity (fast) and the drag adjoint vs central FD (slow),
+morph transpose identity (fast) and both adjoints vs central FD (slow),
 `tests/test_cfd_mesh.py` the own-grid generator and `blockMesh`,
-`tests/test_cfd_primal.py` the full trimmed primal. The slow ones need
+`tests/test_cfd_primal.py` the full primal. The slow ones need
 `AEROSTEALTH_SLOW_TESTS=1`.

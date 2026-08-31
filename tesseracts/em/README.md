@@ -27,8 +27,9 @@ autodiff through `mom.py` and `bessel.py` (no separate adjoint).
 
 `sigma_agg` is a Kreisselmeier-Steinhauser smooth maximum of the per-angle echo
 widths, taken in the log domain so it is scale invariant and `ks_rho` means the
-same thing at any RCS level. It is an upper bound on the sector peak; `ks_rho`
-is raised over the sweep (loose for conditioning, tight for peak fidelity).
+same thing at any RCS level. It is an upper bound on the sector peak. `ks_rho`
+is fixed at the `configs/baseline.yaml` value for the whole sweep; continuation
+in it is not implemented.
 
 The driver normalizes `sigma_agg` by its baseline value before the optimizer
 sees it.
