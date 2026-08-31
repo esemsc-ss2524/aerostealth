@@ -46,10 +46,12 @@ monostatic, at 13 angles over $[-30, 30]$ degrees.
 
 The front is traced by the epsilon-constraint form
 
-$$\min_\theta \; C_d(\theta) \quad \text{s.t.} \quad
+```math
+\min_\theta \; C_d(\theta) \quad \text{s.t.} \quad
 \sigma_\mathrm{agg}(\theta) \leq \varepsilon_k, \;\;
-C_l(\theta) \geq C_l^*, \;\;
-g_\mathrm{geom}(\theta) \leq 0$$
+C_l(\theta) \geq C_l^{\ast}, \;\;
+g_\mathrm{geom}(\theta) \leq 0
+```
 
 at a fixed angle of attack, sweeping $\varepsilon_k$ between two anchor designs.
 
@@ -84,9 +86,11 @@ $\theta \mapsto$ (boundary curve `x_surf`, signed-distance level set,
 constraint vector $g_\mathrm{geom}$). Each surface is a CST (class-shape
 transformation) curve (Kulfan, 2008),
 
-$$y(\psi) = C(\psi)\,S(\psi) + \psi\,\tfrac{1}{2}\Delta z_\mathrm{te},
+```math
+y(\psi) = C(\psi)\,S(\psi) + \psi\,\tfrac{1}{2}\Delta z_\mathrm{te},
 \qquad C(\psi) = \psi^{N_1}(1-\psi)^{N_2},
-\qquad S(\psi) = \sum_{k=0}^{n-1} w_k B_{k,n-1}(\psi),$$
+\qquad S(\psi) = \sum_{k=0}^{n-1} w_k B_{k,n-1}(\psi),
+```
 
 with $\psi = x/c$, Bernstein basis $B_{k,n}(\psi) = \binom{n}{k}\psi^k(1-\psi)^{n-k}$,
 and class exponents $N_1 = 0.5$ (round leading edge), $N_2 = 1.0$ (sharp
@@ -104,32 +108,40 @@ jacobian.
 The flow is steady, incompressible and turbulent. With $\nu_t$ the eddy
 viscosity, the RANS equations solved are
 
-$$\nabla \cdot \mathbf{u} = 0, \qquad
+```math
+\nabla \cdot \mathbf{u} = 0, \qquad
 (\mathbf{u} \cdot \nabla)\mathbf{u} = -\nabla p
-+ \nabla \cdot \left[ (\nu + \nu_t)(\nabla \mathbf{u} + \nabla \mathbf{u}^T) \right],$$
++ \nabla \cdot \left[ (\nu + \nu_t)(\nabla \mathbf{u} + \nabla \mathbf{u}^T) \right],
+```
 
 closed by the one-equation Spalart-Allmaras model (Spalart and Allmaras, 1994),
 $\nu_t = \tilde{\nu} f_{v1}$, with
 
-$$(\mathbf{u} \cdot \nabla)\tilde{\nu} = c_{b1}\tilde{S}\tilde{\nu}
+```math
+(\mathbf{u} \cdot \nabla)\tilde{\nu} = c_{b1}\tilde{S}\tilde{\nu}
 - c_{w1} f_w \left(\frac{\tilde{\nu}}{d}\right)^2
 + \frac{1}{\sigma}\left[ \nabla \cdot \big((\nu + \tilde{\nu})\nabla\tilde{\nu}\big)
-+ c_{b2}|\nabla\tilde{\nu}|^2 \right],$$
++ c_{b2}|\nabla\tilde{\nu}|^2 \right],
+```
 
 where $d$ is the distance to the wall. The first cell sits at $y^+ \approx 30$,
 so the wall is treated with Spalding's continuous law of the wall (Spalding,
 1961),
 
-$$y^+ = u^+ + \frac{1}{E}\left[ e^{\kappa u^+} - 1 - \kappa u^+
-- \frac{(\kappa u^+)^2}{2} - \frac{(\kappa u^+)^3}{6} \right].$$
+```math
+y^+ = u^+ + \frac{1}{E}\left[ e^{\kappa u^+} - 1 - \kappa u^+
+- \frac{(\kappa u^+)^2}{2} - \frac{(\kappa u^+)^3}{6} \right].
+```
 
 The equations are discretized by finite volumes and solved by SIMPLE (Patankar
 and Spalding, 1972) in OpenFOAM (Weller et al., 1998). The force coefficient
 along a unit direction $\mathbf{e}$ is
 
-$$C_{\mathbf{e}} = \frac{1}{\tfrac{1}{2}U_\infty^2 A_\mathrm{ref}}
+```math
+C_{\mathbf{e}} = \frac{1}{\tfrac{1}{2}U_\infty^2 A_\mathrm{ref}}
 \int_S \left( p\,\mathbf{n} - \boldsymbol{\tau}\cdot\mathbf{n} \right)
-\cdot \mathbf{e} \; dS,$$
+\cdot \mathbf{e} \; dS,
+```
 
 with $\mathbf{e}$ aligned with the freestream for $C_d$ and normal to it for
 $C_l$.
@@ -138,9 +150,11 @@ $C_l$.
 function interpolation from the airfoil nodes (de Boer et al., 2007). The
 displacement of any mesh point $\mathbf{q}$ is
 
-$$\Delta\mathbf{x}(\mathbf{q}) = \sum_i \varphi\!\left(
+```math
+\Delta\mathbf{x}(\mathbf{q}) = \sum_i \varphi\!\left(
 \frac{\lVert \mathbf{q} - \mathbf{c}_i \rVert}{r} \right)\boldsymbol{\alpha}_i,
-\qquad \varphi(s) = (1-s)^4(4s+1) \ \text{ for } s \leq 1,$$
+\qquad \varphi(s) = (1-s)^4(4s+1) \ \text{ for } s \leq 1,
+```
 
 the Wendland $C^2$ kernel (Wendland, 1995), with the coefficients
 $\boldsymbol{\alpha}$ fixed by interpolation at the surface nodes
@@ -152,12 +166,17 @@ Shape sensitivities come from the continuous adjoint (Jameson, 1988;
 Papoutsis-Kiachagias and Giannakoglou, 2016) as implemented in
 `adjointOptimisationFoam`, with the turbulence model differentiated rather than
 frozen. The adjoint fields $(\mathbf{u}_a, p_a, \tilde{\nu}_a)$ satisfy the
-equations obtained by requiring stationarity of $L = J + \int
-(\mathbf{u}_a, p_a, \tilde{\nu}_a) \cdot \mathbf{R}\, d\Omega$ with respect
-to the primal state, after which the shape derivative reduces to a surface
-integral giving $dJ/dx$ at each boundary node. One adjoint solve is run per
-objective off the converged primal, and the transpose of the RBF morph pulls
-$dJ/dx$ back to $dJ/dx_\mathrm{surf}$.
+equations obtained by requiring stationarity of the augmented functional
+
+```math
+L = J + \int_\Omega (\mathbf{u}_a, p_a, \tilde{\nu}_a) \cdot \mathbf{R} \; d\Omega
+```
+
+with respect to the primal state, where $\mathbf{R}$ collects the primal
+residuals. The shape derivative then reduces to a surface integral giving
+$dJ/dx$ at each boundary node. One adjoint solve is run per objective off the
+converged primal, and the transpose of the RBF morph pulls $dJ/dx$ back to
+$dJ/dx_\mathrm{surf}$.
 
 Two details matter for correctness. First, only the normal component of the
 surface sensitivity changes the shape, because tangential motion slides mesh
@@ -173,36 +192,44 @@ For TM-z polarization the induced current on a perfectly conducting contour $C$
 is scalar, and the electric field integral equation reduces to (Harrington,
 1968)
 
-$$E_z^\mathrm{inc}(\boldsymbol{\rho}) = \frac{k\eta}{4}
+```math
+E_z^\mathrm{inc}(\boldsymbol{\rho}) = \frac{k\eta}{4}
 \int_C J_z(\boldsymbol{\rho}')\,
 H_0^{(2)}\!\left( k \lVert \boldsymbol{\rho} - \boldsymbol{\rho}' \rVert \right)
-\, dl', \qquad \boldsymbol{\rho} \in C,$$
+\, dl', \qquad \boldsymbol{\rho} \in C,
+```
 
 with $H_0^{(2)}$ the zeroth-order Hankel function of the second kind. Pulse basis
 functions and point matching on $N$ segments give a dense system
 $\mathbf{Z}\mathbf{I} = \mathbf{V}$ with
 
-$$Z_{mn} = \frac{k}{4}\,\Delta l_n
+```math
+Z_{mn} = \frac{k}{4}\,\Delta l_n
 H_0^{(2)}\!\left( k \lVert \boldsymbol{\rho}_m - \boldsymbol{\rho}_n \rVert \right)
 \quad (m \neq n), \qquad
 Z_{nn} = \frac{k\,\Delta l_n}{4}\left[ 1 - j\frac{2}{\pi}
-\ln\!\left( \frac{\gamma k \Delta l_n}{4e} \right) \right],$$
+\ln\!\left( \frac{\gamma k \Delta l_n}{4e} \right) \right],
+```
 
 the diagonal using the small-argument form of $H_0^{(2)}$ with
 $\gamma = 1.781\ldots$ the exponential of Euler's constant. The monostatic echo
 width for incidence direction $\hat{\mathbf{k}}$ follows from the backscattered
 far field,
 
-$$\sigma_\mathrm{2D}(\hat{\mathbf{k}}) = \frac{k}{4}
+```math
+\sigma_\mathrm{2D}(\hat{\mathbf{k}}) = \frac{k}{4}
 \left| \sum_n I_n \, \Delta l_n \,
-e^{-jk\,\boldsymbol{\rho}_n \cdot \hat{\mathbf{k}}} \right|^2 .$$
+e^{-jk\,\boldsymbol{\rho}_n \cdot \hat{\mathbf{k}}} \right|^2 .
+```
 
 The solve is repeated for each of the 13 incidence angles. The sector peak is
 aggregated by a Kreisselmeier-Steinhauser smooth maximum (Kreisselmeier and
 Steinhauser, 1979) taken in the log domain,
 
-$$\sigma_\mathrm{agg} = \exp\left[ \frac{1}{\rho_\mathrm{KS}}
-\ln \sum_i e^{\rho_\mathrm{KS} \ln \sigma_i} \right],$$
+```math
+\sigma_\mathrm{agg} = \exp\left[ \frac{1}{\rho_\mathrm{KS}}
+\ln \sum_i e^{\rho_\mathrm{KS} \ln \sigma_i} \right],
+```
 
 which is an upper bound on $\max_i \sigma_i$ and is scale invariant, so
 $\rho_\mathrm{KS}$ has the same meaning at any RCS level.
@@ -219,9 +246,11 @@ The optimizer is the method of moving asymptotes (Svanberg, 1987) through NLopt
 (Johnson, 2007). MMA replaces the problem at the current iterate $\theta^{(k)}$
 by a convex separable subproblem, in which each function is approximated as
 
-$$\tilde{f}_i(\theta) = r_i + \sum_j \left[
+```math
+\tilde{f}_i(\theta) = r_i + \sum_j \left[
 \frac{p_{ij}}{U_j^{(k)} - \theta_j} + \frac{q_{ij}}{\theta_j - L_j^{(k)}}
-\right],$$
+\right],
+```
 
 with $p_{ij}$ and $q_{ij}$ built from the gradients at $\theta^{(k)}$ and the
 asymptotes $L_j^{(k)} < \theta_j < U_j^{(k)}$ adapted between iterations. The

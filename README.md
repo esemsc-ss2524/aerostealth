@@ -13,6 +13,9 @@ traced across a stealth-vs-aero Pareto front by an epsilon-constraint sweep.
   KS-aggregated and differentiated by autodiff.
 - `driver`: composes `geom -> {cfd, em}` with `tesseract-jax` and runs the sweep.
 
+The method, the Pareto front and the gradient validation are written up in
+[paper/writeup.md](paper/writeup.md).
+
 License: Apache-2.0.
 
 ## Environment
