@@ -3,7 +3,7 @@ objective: Cd
 constraint: sigma_agg
 
 epsilon:
-  points: 12
+  points: 8
   include_anchors: true
   schedule: linear
 
@@ -11,9 +11,9 @@ warm_start: previous
 
 optimizer:
   name: SLSQP
-  max_iter: 60
+  max_iter: 6
   ftol: 1.0e-6
-  step_bound: 0.1
+  step_bound: 0.04
 
 ks_continuation:
   rho_start: 10.0

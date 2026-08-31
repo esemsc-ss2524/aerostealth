@@ -1,7 +1,10 @@
 geometry:
   airfoil: NACA0012
   chord: 1.0
-  cst_coeffs: 8
+  cst_coeffs: 12
+  cst_weight_init: 0.152
+  cst_weight_bounds: [0.08, 0.22]
+  n_surface: 161
   constraints:
     thickness_min: 0.02
     thickness_max: 0.16

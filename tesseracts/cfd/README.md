@@ -13,8 +13,10 @@ OpenFOAM incompressible RANS primal on a morphed reference mesh.
    Newton iteration until `Cl` matches `cl_target`. Each iteration restarts from
    the previous angle's fields.
 3. `tesseract_api.apply` hashes `x_surf` and `reynolds` to a run directory under
-   `_run/` (gitignored) and returns `Cd, Cl, Cm`, the trimmed `alpha_deg`, and
-   the trim iteration count.
+   `_run/` (gitignored) and returns `Cd, Cl, Cm`. The trimmed angle and the trim
+   iteration count stay out of the output schema, since `tesseract-jax` expects
+   every declared output to have a shape; they are in the run directory and in
+   `runner.run_trim`'s return value.
 
 Angle of attack enters through the freestream direction, not the mesh; the
 section stays in the body frame.

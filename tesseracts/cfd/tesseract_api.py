@@ -25,8 +25,6 @@ class OutputSchema(BaseModel):
     Cd: Differentiable[Float64]
     Cl: Differentiable[Float64]
     Cm: Differentiable[Float64]
-    alpha_deg: float
-    trim_iterations: int
 
 
 def _workdir(x_surf, reynolds):
@@ -35,6 +33,11 @@ def _workdir(x_surf, reynolds):
         + np.float64([reynolds]).tobytes()
     ).hexdigest()[:16]
     return RUN_ROOT / key
+
+
+def abstract_eval(abstract_inputs):
+    """Output shapes without running OpenFOAM: the three coefficients are scalars."""
+    return {name: {"shape": (), "dtype": "float64"} for name in ("Cd", "Cl", "Cm")}
 
 
 def apply(inputs: InputSchema) -> OutputSchema:
@@ -50,8 +53,6 @@ def apply(inputs: InputSchema) -> OutputSchema:
         Cd=result["Cd"],
         Cl=result["Cl"],
         Cm=result["Cm"],
-        alpha_deg=result["alpha_deg"],
-        trim_iterations=result["trim_iterations"],
     )
 
 

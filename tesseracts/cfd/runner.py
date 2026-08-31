@@ -3,6 +3,7 @@
 with an inner angle-of-attack Newton solve to trim to a target lift."""
 
 import gzip
+import json
 import math
 import os
 import re
@@ -95,16 +96,33 @@ def _set_flow_conditions(case, alpha_deg, reynolds):
     (case / "system/controlDict").write_text(cd)
 
 
-def _parse_forces(case):
+def _coefficient_rows(case):
     dat = case / "postProcessing/forceCoeffs/0/coefficient.dat"
-    rows = [ln.split() for ln in dat.read_text().splitlines() if ln and not ln.startswith("#")]
-    last = rows[-1]
+    return [ln.split() for ln in dat.read_text().splitlines() if ln and not ln.startswith("#")]
+
+
+def _parse_forces(case):
+    last = _coefficient_rows(case)[-1]
     return {"Cd": float(last[1]), "Cl": float(last[4]), "Cm": float(last[7])}
 
 
-def _converged(case):
-    log = (case / "log.simpleFoam").read_text()
-    return "SIMPLE solution converged" in log
+def _converged(case, window=200, tol=1e-4):
+    """Accept a solve whose forces have stopped moving, not only one that tripped
+    residualControl.
+
+    A section far from the reference can hold Cd and Cl steady to six figures for
+    hundreds of iterations while the residuals sit just above the threshold.
+    Rejecting those loses good designs; what the objective needs is that the
+    coefficients are stationary.
+    """
+    if "SIMPLE solution converged" in (case / "log.simpleFoam").read_text():
+        return True
+    rows = _coefficient_rows(case)
+    if len(rows) < window:
+        return False
+    tail = np.array([[float(r[1]), float(r[4])] for r in rows[-window:]])
+    scale = np.abs(tail).mean(axis=0) + 1e-12
+    return bool(np.all(np.ptp(tail, axis=0) / scale < tol))
 
 
 def _case_ignore(_dir, names):
@@ -130,9 +148,44 @@ def solve(mesh_dir, alpha_deg, reynolds, workdir, restart_from=None):
     return out
 
 
+class TrimFailure(RuntimeError):
+    """The trim never reached the target lift on a converged primal.
+
+    Raised rather than returned: a diverged primal produces a plausible-looking
+    Cd and an adjoint built on top of it, and nothing downstream can tell the
+    difference from a real one.
+    """
+
+
+TRIM_CACHE = "trim.json"
+
+
+def _read_trim_cache(workdir, cl_target):
+    path = Path(workdir) / TRIM_CACHE
+    if not path.exists():
+        return None
+    cached = json.loads(path.read_text())
+    if cached.get("cl_target") != cl_target or not Path(cached["case"]).exists():
+        return None
+    return cached
+
+
+def _write_trim_cache(workdir, cl_target, result):
+    (Path(workdir) / TRIM_CACHE).write_text(json.dumps({**result, "cl_target": cl_target}))
+    return result
+
+
 def run_trim(x_surf, cl_target, reynolds, workdir, alpha0=0.0, tol=2e-3, max_iter=6):
-    """Newton/secant trim: iterate the angle of attack until Cl matches cl_target."""
+    """Newton/secant trim: iterate the angle of attack until Cl matches cl_target.
+
+    The converged result is cached beside the run, since apply and the vjp are
+    separate endpoint calls on the same design and would otherwise each pay for
+    a full trim.
+    """
     workdir = Path(workdir)
+    cached = _read_trim_cache(workdir, cl_target)
+    if cached is not None:
+        return cached
     mesh = prepare_mesh(x_surf, workdir)
     history = []
     alpha, prev = alpha0, None
@@ -140,10 +193,11 @@ def run_trim(x_surf, cl_target, reynolds, workdir, alpha0=0.0, tol=2e-3, max_ite
         r = solve(mesh, alpha, reynolds, workdir / f"it{it}",
                   restart_from=prev["case"] if prev else None)
         history.append({"alpha_deg": alpha, "Cl": r["Cl"], "Cd": r["Cd"]})
-        if abs(r["Cl"] - cl_target) <= tol:
-            return {"Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"], "alpha_deg": alpha,
-                    "trim_iterations": it + 1, "converged": r["converged"],
-                    "case": str(r["case"]), "history": history}
+        if abs(r["Cl"] - cl_target) <= tol and r["converged"]:
+            return _write_trim_cache(workdir, cl_target, {
+                "Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"], "alpha_deg": alpha,
+                "trim_iterations": it + 1, "converged": r["converged"],
+                "case": str(r["case"]), "history": history})
         if prev is None:
             alpha_next = alpha + (cl_target - r["Cl"]) / 0.1
         else:
@@ -151,9 +205,10 @@ def run_trim(x_surf, cl_target, reynolds, workdir, alpha0=0.0, tol=2e-3, max_ite
             alpha_next = alpha - (r["Cl"] - cl_target) / slope
         prev = {"case": r["case"], "Cl": r["Cl"], "alpha_deg": alpha}
         alpha = alpha_next
-    return {"Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"], "alpha_deg": alpha,
-            "trim_iterations": max_iter, "converged": False,
-            "case": str(r["case"]), "history": history}
+    raise TrimFailure(
+        f"no converged primal at Cl={cl_target} in {max_iter} iterations "
+        f"(last Cl={r['Cl']:.4f}, converged={r['converged']}); history={history}"
+    )
 
 
 def run_primal(x_surf, alpha_deg, reynolds, workdir, morph_radius=0.6):

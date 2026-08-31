@@ -32,4 +32,3 @@ def test_trim_to_target_cl():
     out = cfd.apply({"x_surf": x_surf, "cl_target": 0.4, "alpha_deg": 3.0})
     assert abs(float(out["Cl"]) - 0.4) < 5e-3
     assert 0.005 < float(out["Cd"]) < 0.05
-    assert 2.0 < float(out["alpha_deg"]) < 6.0
