@@ -32,9 +32,8 @@ matching update to both adapters.
   over `raster_bbox = (xmin, xmax, ymin, ymax)`, in the same units as `x_surf`.
 - Sign convention: negative inside the airfoil, positive outside. Magnitude is
   the exact Euclidean distance to the boundary polygon.
-- Nothing downstream consumes it at present: the method-of-moments `em` leg
-  takes `x_surf` directly. It is kept for a grid-based EM solver, which is what
-  it was added for.
+- Nothing downstream consumes it: the method-of-moments `em` leg takes `x_surf`
+  directly. It is kept for a grid-based EM solver.
 
 ## Constraints
 

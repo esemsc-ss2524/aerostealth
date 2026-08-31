@@ -293,15 +293,29 @@ def _level_worker(item):
     return i, {**p, "eps": eps, "label": "sweep"}, ev.n_aero_calls
 
 
-def run_sweep(config, sweep, out_path=None):
+def endpoints_from(result, sigma_hi, sigma_lo):
+    """Reuse two solved designs from an earlier sweep as the range endpoints.
+
+    A refinement pass over part of the front should not re-solve the anchors or
+    the points it is filling between.
+    """
+    points = result["points"]
+    pick = lambda s: min(points, key=lambda p: abs(p["sigma_agg"] - s))  # noqa: E731
+    return pick(sigma_hi), pick(sigma_lo)
+
+
+def run_sweep(config, sweep, out_path=None, endpoints=None):
     out_dir = Path(out_path).parent if out_path else None
     anchor_ev = Evaluator(config, out_dir=out_dir, tag="anchor")
     theta0 = baseline_theta(config)
 
-    aero = solve_subproblem(anchor_ev, config, sweep, None, theta0)
-    stealth = evaluate_point(anchor_ev, stealth_anchor(anchor_ev, config, sweep, theta0))
-    print(f"  anchors: aero Cd={aero['Cd']:.6f} sigma={aero['sigma_agg']:.6f} | "
-          f"stealth Cd={stealth['Cd']:.6f} sigma={stealth['sigma_agg']:.6f}", flush=True)
+    if endpoints is None:
+        aero = solve_subproblem(anchor_ev, config, sweep, None, theta0)
+        stealth = evaluate_point(anchor_ev, stealth_anchor(anchor_ev, config, sweep, theta0))
+    else:
+        aero, stealth = endpoints
+    print(f"  endpoints: high Cd={aero['Cd']:.6f} sigma={aero['sigma_agg']:.6f} | "
+          f"low Cd={stealth['Cd']:.6f} sigma={stealth['sigma_agg']:.6f}", flush=True)
 
     hi = aero["sigma_agg"] / anchor_ev.sigma_ref
     lo = stealth["sigma_agg"] / anchor_ev.sigma_ref
@@ -337,14 +351,40 @@ def run_sweep(config, sweep, out_path=None):
     return _save(points, anchor_ev, n_calls, out_path)
 
 
+def _endpoint_labels(points, refined):
+    """A refinement's endpoints came from the parent run, so they keep their own
+    labels rather than being reported as anchors this pass solved."""
+    if not refined:
+        return points
+    out = list(points)
+    out[0] = dict(out[0], label="endpoint_high")
+    out[-1] = dict(out[-1], label="endpoint_low")
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", type=Path, default="configs/baseline.yaml")
     parser.add_argument("--sweep", type=Path, default="configs/sweep.yaml")
     parser.add_argument("--out", type=Path, default="outputs/pareto.json")
+    parser.add_argument("--resume", type=Path,
+                        help="earlier sweep result to take the range endpoints from")
+    parser.add_argument("--sigma-hi", type=float, help="echo width at the high end")
+    parser.add_argument("--sigma-lo", type=float, help="echo width at the low end")
     args = parser.parse_args()
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    result = run_sweep(load_config(args.baseline), load_config(args.sweep), args.out)
+
+    endpoints = None
+    if args.resume:
+        if args.sigma_hi is None or args.sigma_lo is None:
+            parser.error("--resume needs --sigma-hi and --sigma-lo")
+        endpoints = endpoints_from(json.loads(args.resume.read_text()),
+                                   args.sigma_hi, args.sigma_lo)
+
+    result = run_sweep(load_config(args.baseline), load_config(args.sweep),
+                       args.out, endpoints=endpoints)
+    result["points"] = _endpoint_labels(result["points"], endpoints is not None)
+    args.out.write_text(json.dumps(result, indent=2))
     for p in result["points"]:
         print(f"{p['label']:14s} Cd={p['Cd']:.6f}  Cl={p['Cl']:.4f}  "
               f"sigma={p['sigma_agg']:.6f}  status={p['status']}")
