@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Drive an OpenFOAM incompressible RANS primal on the morphed reference mesh,
-with an inner angle-of-attack Newton solve to trim to a target lift."""
+"""Drive an OpenFOAM incompressible RANS primal at a fixed angle of attack on the
+morphed reference mesh, plus the drag and lift adjoints."""
 
 import gzip
 import json
@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,16 @@ TURB_INIT = 25.0
 
 sys.path.insert(0, str(CFD_DIR / "mesh"))
 import morph  # noqa: E402
+
+_LOCKS = {}
+_LOCK_REGISTRY = threading.Lock()
+
+
+def workdir_lock(workdir):
+    """Serialize work on one run directory so concurrent sweep levels that land
+    on the same geometry cannot tear down each other's case."""
+    with _LOCK_REGISTRY:
+        return _LOCKS.setdefault(str(workdir), threading.Lock())
 
 
 def _bashrc():
@@ -187,17 +198,18 @@ def run_primal(x_surf, alpha_deg, reynolds, workdir, morph_radius=0.6):
     otherwise each pay for a full solve.
     """
     workdir = Path(workdir)
-    cached = _read_primal_cache(workdir, alpha_deg)
-    if cached is not None:
-        return cached
-    mesh = prepare_mesh(x_surf, workdir, morph_radius)
-    r = solve(mesh, alpha_deg, reynolds, workdir / "primal")
-    if not r["converged"]:
-        raise PrimalFailure(f"forces not stationary at alpha={alpha_deg} (see {r['case']})")
-    result = {"Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"], "alpha_deg": alpha_deg,
-              "case": str(r["case"])}
-    (workdir / PRIMAL_CACHE).write_text(json.dumps(result))
-    return result
+    with workdir_lock(workdir):
+        cached = _read_primal_cache(workdir, alpha_deg)
+        if cached is not None:
+            return cached
+        mesh = prepare_mesh(x_surf, workdir, morph_radius)
+        r = solve(mesh, alpha_deg, reynolds, workdir / "primal")
+        if not r["converged"]:
+            raise PrimalFailure(f"forces not stationary at alpha={alpha_deg} (see {r['case']})")
+        result = {"Cd": r["Cd"], "Cl": r["Cl"], "Cm": r["Cm"], "alpha_deg": alpha_deg,
+                  "case": str(r["case"])}
+        (workdir / PRIMAL_CACHE).write_text(json.dumps(result))
+        return result
 
 
 ADJOINT_OVERLAY = TEMPLATE / "adjoint"

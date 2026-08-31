@@ -3,7 +3,9 @@ objective: Cd
 constraint: sigma_agg
 
 epsilon:
-  points: 8
+  points: 10
+
+warm_start: anchor_blend
 
 optimizer:
   name: MMA
@@ -12,3 +14,4 @@ optimizer:
   ftol: 1.0e-6
   step_bound: 0.05
   retries: 2
+  jobs: 8

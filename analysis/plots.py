@@ -39,7 +39,7 @@ def pareto_front(cd, sigma, labels=None, out_path="pareto.png"):
             if name in ("aero_anchor", "stealth_anchor"):
                 ax.annotate(name.replace("_", " "), (x, y),
                             textcoords="offset points", xytext=(8, 6), fontsize=9)
-    ax.set_xlabel("Cd at trimmed Cl")
+    ax.set_xlabel("Cd at fixed alpha, Cl >= Cl*")
     ax.set_ylabel("KS-aggregated echo width (m)")
     ax.set_title("stealth versus drag Pareto front")
     ax.legend(fontsize=9)

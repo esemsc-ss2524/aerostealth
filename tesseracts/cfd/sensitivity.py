@@ -48,24 +48,26 @@ def shape_sensitivity(x_surf, alpha_deg, reynolds, workdir):
     """dCd/dx_surf and dCl/dx_surf, each (N, 2), plus the operating point."""
     x_surf = np.asarray(x_surf, dtype=np.float64)
     workdir = Path(workdir)
-    cached = _read_cache(workdir, alpha_deg)
-    if cached is not None:
-        return cached
-
     primal = runner.run_primal(x_surf, alpha_deg, reynolds, workdir)
-    primal_case = primal["case"]
-    sens = runner.run_adjoint(primal_case, alpha_deg, reynolds, workdir / "adj")
-    ref_points = runner.reference_points(workdir)
 
-    def project(point_vector):
-        return morph.morph_vjp(primal_case, x_surf, point_vector, radius=MORPH_RADIUS,
-                               reference_points=ref_points)
+    with runner.workdir_lock(workdir / "adj"):
+        cached = _read_cache(workdir, alpha_deg)
+        if cached is not None:
+            return cached
 
-    return _write_cache(workdir, alpha_deg, {
-        "dCd_dx_surf": project(sens["drag"]),
-        "dCl_dx_surf": project(sens["lift"]),
-        "Cd": primal["Cd"],
-        "Cl": primal["Cl"],
-        "Cm": primal["Cm"],
-        "alpha_deg": alpha_deg,
-    })
+        primal_case = primal["case"]
+        sens = runner.run_adjoint(primal_case, alpha_deg, reynolds, workdir / "adj")
+        ref_points = runner.reference_points(workdir)
+
+        def project(point_vector):
+            return morph.morph_vjp(primal_case, x_surf, point_vector, radius=MORPH_RADIUS,
+                                   reference_points=ref_points)
+
+        return _write_cache(workdir, alpha_deg, {
+            "dCd_dx_surf": project(sens["drag"]),
+            "dCl_dx_surf": project(sens["lift"]),
+            "Cd": primal["Cd"],
+            "Cl": primal["Cl"],
+            "Cm": primal["Cm"],
+            "alpha_deg": alpha_deg,
+        })
